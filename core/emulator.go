@@ -506,6 +506,17 @@ func (e *Emulator) SetOption(key string, value string) {
 		}
 	case "crt_curvature":
 		e.displayProc.SetCRTCurvature(value == "true" || value == "1" || value == "on")
+	case "lightgun_mode":
+		enabled := (value == "true" || value == "1" || value == "on")
+		e.smpc.SetLightgunMode(0, enabled)
+	case "lightgun_port":
+		if value == "Port 2" || value == "2" {
+			e.smpc.SetLightgunMode(0, false)
+			e.smpc.SetLightgunMode(1, true)
+		} else {
+			e.smpc.SetLightgunMode(0, true)
+			e.smpc.SetLightgunMode(1, false)
+		}
 	}
 }
 

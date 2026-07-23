@@ -143,6 +143,32 @@ func (f *Factory) SystemInfo() coreif.SystemInfo {
 				Default:     "false",
 				Category:    coreif.CoreOptionCategoryVideo,
 			},
+			{
+				Key:         "lightgun_mode",
+				Label:       "Sinden Lightgun / Virtua Gun",
+				Description: "Enable optical lightgun peripheral targeting",
+				Type:        coreif.CoreOptionBool,
+				Default:     "true",
+				Category:    coreif.CoreOptionCategoryInput,
+			},
+			{
+				Key:         "lightgun_port",
+				Label:       "Lightgun Controller Port",
+				Description: "Select lightgun player assignment",
+				Type:        coreif.CoreOptionSelect,
+				Default:     "Port 1",
+				Values:      []string{"Port 1", "Port 2"},
+				Category:    coreif.CoreOptionCategoryInput,
+			},
+			{
+				Key:         "active_players",
+				Label:       "Active Controller Ports",
+				Description: "Configure active player controllers",
+				Type:        coreif.CoreOptionSelect,
+				Default:     "2 Players",
+				Values:      []string{"2 Players", "4 Players", "6 Players", "12 Players"},
+				Category:    coreif.CoreOptionCategoryInput,
+			},
 		},
 		BIOSOptions: []coreif.BIOSOption{
 			{
