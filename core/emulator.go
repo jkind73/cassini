@@ -412,6 +412,17 @@ func (e *Emulator) SetInput(player int, buttons uint32) {
 	e.smpc.SetPadData(player, uint16(b1)<<8|uint16(b2))
 }
 
+// SetPointer delivers Sinden Lightgun / mouse pointer coordinates (x, y)
+// and trigger state for the specified player lightgun port.
+func (e *Emulator) SetPointer(player int, x, y int, trigger bool) {
+	if player >= 0 && player < 2 {
+		e.smpc.SetLightgunMode(player, true)
+		if trigger {
+			e.vdp2.LatchLightgun(x, y)
+		}
+	}
+}
+
 // GetAudioSamples returns the audio sample buffer for the current frame.
 func (e *Emulator) GetAudioSamples() []int16 {
 	return e.audioBuffer

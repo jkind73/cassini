@@ -746,6 +746,25 @@ func (v *VDP2) buildTVSTAT() uint16 {
 	return stat
 }
 
+// LatchLightgun triggers an explicit Virtua Gun / Sinden Lightgun beam latch
+// at screen coordinates (x, y). Used when a lightgun fires its optical pulse.
+func (v *VDP2) LatchLightgun(x, y int) {
+	if x < 0 || y < 0 {
+		return
+	}
+	v.latchedVLine = uint16(y)
+	// Convert x coordinate to line cycle position
+	if v.hiRes {
+		v.latchedLineCycle = uint32(x << 1)
+	} else {
+		v.latchedLineCycle = uint32(x << 2)
+	}
+	v.latchedHiRes = v.hiRes
+	v.latchedInterlace = v.interlace
+	v.latchedOddField = v.oddField
+	v.exltfg = true
+}
+
 // latchHV snapshots the current H/V counters and active mode into
 // the latched* fields, and raises EXLTFG. Called on CPU read of
 // EXTEN with EXLTEN=0 per PDF Sec 2.5 page 19.

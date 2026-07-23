@@ -80,6 +80,7 @@ type SMPC struct {
 	intbackP2MD   uint8 // Port 2 mode from IREG1 (2 bits)
 
 	padState [12]uint16 // Active-low button data per player (0xFFFF = all released)
+	gunEnabled [2]bool  // Virtua Gun / Sinden Lightgun mode per port
 
 	sshEnabled bool // Slave SH-2 enabled (SSHON/SSHOFF)
 
@@ -575,6 +576,13 @@ func (s *SMPC) SetPadData(port int, data uint16) {
 	}
 }
 
+// SetLightgunMode enables or disables Virtua Gun / Sinden Lightgun peripheral ID for port 0 or 1.
+func (s *SMPC) SetLightgunMode(port int, enabled bool) {
+	if port >= 0 && port < 2 {
+		s.gunEnabled[port] = enabled
+	}
+}
+
 // PadData returns the current active-low 16-bit pad button state for
 // port 0 to 11. Used by HLE BIOS PER_* services to fabricate
 // peripheral records without going through the full SMPC INTBACK
@@ -598,7 +606,11 @@ func (s *SMPC) collectPeripheralData() {
 	// Port 1 data (omitted if 0-byte mode)
 	if s.intbackP1MD != 3 {
 		s.oreg[idx] = 0xF1 // multitap=F, connectors=1
-		s.oreg[idx+1] = 0x02
+		if s.gunEnabled[0] {
+			s.oreg[idx+1] = 0x0D // Virtua Gun / Lightgun ID
+		} else {
+			s.oreg[idx+1] = 0x02 // Standard Digital Pad ID
+		}
 		s.oreg[idx+2] = uint8(s.padState[0] >> 8)
 		s.oreg[idx+3] = uint8(s.padState[0])
 		idx += 4
@@ -607,7 +619,11 @@ func (s *SMPC) collectPeripheralData() {
 	// Port 2 data (omitted if 0-byte mode)
 	if s.intbackP2MD != 3 {
 		s.oreg[idx] = 0xF1 // multitap=F, connectors=1
-		s.oreg[idx+1] = 0x02
+		if s.gunEnabled[1] {
+			s.oreg[idx+1] = 0x0D // Virtua Gun / Lightgun ID
+		} else {
+			s.oreg[idx+1] = 0x02 // Standard Digital Pad ID
+		}
 		s.oreg[idx+2] = uint8(s.padState[1] >> 8)
 		s.oreg[idx+3] = uint8(s.padState[1])
 	}
