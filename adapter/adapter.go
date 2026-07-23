@@ -149,7 +149,7 @@ func (f *Factory) SystemInfo() coreif.SystemInfo {
 				Description: "Enable optical lightgun peripheral targeting",
 				Type:        coreif.CoreOptionBool,
 				Default:     "true",
-				Category:    coreif.CoreOptionCategoryInput,
+				Category:    coreif.CoreOptionCategoryCore,
 			},
 			{
 				Key:         "lightgun_port",
@@ -158,7 +158,7 @@ func (f *Factory) SystemInfo() coreif.SystemInfo {
 				Type:        coreif.CoreOptionSelect,
 				Default:     "Port 1",
 				Values:      []string{"Port 1", "Port 2"},
-				Category:    coreif.CoreOptionCategoryInput,
+				Category:    coreif.CoreOptionCategoryCore,
 			},
 			{
 				Key:         "active_players",
@@ -167,7 +167,7 @@ func (f *Factory) SystemInfo() coreif.SystemInfo {
 				Type:        coreif.CoreOptionSelect,
 				Default:     "2 Players",
 				Values:      []string{"2 Players", "4 Players", "6 Players", "12 Players"},
-				Category:    coreif.CoreOptionCategoryInput,
+				Category:    coreif.CoreOptionCategoryCore,
 			},
 		},
 		BIOSOptions: []coreif.BIOSOption{
