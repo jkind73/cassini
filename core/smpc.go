@@ -79,7 +79,7 @@ type SMPC struct {
 	intbackP1MD   uint8 // Port 1 mode from IREG1 (2 bits)
 	intbackP2MD   uint8 // Port 2 mode from IREG1 (2 bits)
 
-	padState [2]uint16 // Active-low button data per port (0xFFFF = all released)
+	padState [12]uint16 // Active-low button data per player (0xFFFF = all released)
 
 	sshEnabled bool // Slave SH-2 enabled (SSHON/SSHOFF)
 
@@ -110,7 +110,9 @@ type SMPC struct {
 func NewSMPC() *SMPC {
 	s := &SMPC{
 		areaCode: 0x04, // North America
-		padState: [2]uint16{0xFFFF, 0xFFFF},
+	}
+	for i := range s.padState {
+		s.padState[i] = 0xFFFF
 	}
 	s.initRTC()
 	return s
@@ -568,17 +570,17 @@ func (s *SMPC) cmdINTBACK() {
 // the lower 8 bits are button data byte 2 (R/X/Y/Z/L + unused).
 // Buttons are active-low: 0 = pressed, 1 = not pressed.
 func (s *SMPC) SetPadData(port int, data uint16) {
-	if port >= 0 && port < 2 {
+	if port >= 0 && port < 12 {
 		s.padState[port] = data
 	}
 }
 
 // PadData returns the current active-low 16-bit pad button state for
-// port 0 or 1. Used by HLE BIOS PER_* services to fabricate
+// port 0 to 11. Used by HLE BIOS PER_* services to fabricate
 // peripheral records without going through the full SMPC INTBACK
 // sequence. Returns $FFFF (all released) for out-of-range ports.
 func (s *SMPC) PadData(port int) uint16 {
-	if port >= 0 && port < 2 {
+	if port >= 0 && port < 12 {
 		return s.padState[port]
 	}
 	return 0xFFFF

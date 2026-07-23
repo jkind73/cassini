@@ -59,7 +59,7 @@ func (f *Factory) SystemInfo() coreif.SystemInfo {
 		PixelAspectRatio: 1.0,
 		SampleRate:       44100,
 		Buttons:          saturnButtons(),
-		Players:          2,
+		Players:          12,
 		Disc:             true,
 		ConsoleID:        39,
 		BigEndianMemory:  true,
