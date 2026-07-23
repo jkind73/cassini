@@ -436,11 +436,65 @@ func (e *Emulator) SetSH2Trace(master, slave func(pc uint32, op uint16)) {
 }
 
 // SetOption applies a core option change identified by key.
-// Values are stored and applied when Start() is called.
+// Values are stored and applied when Start() is called or immediately.
 func (e *Emulator) SetOption(key string, value string) {
 	switch key {
 	case "fast_boot":
 		e.pendingFastBoot = (value == "true")
+	case "scale_factor":
+		switch value {
+		case "1", "1x":
+			e.vdp1.SetScaleFactor(1)
+		case "2", "2x":
+			e.vdp1.SetScaleFactor(2)
+		case "3", "3x":
+			e.vdp1.SetScaleFactor(3)
+		case "4", "4x":
+			e.vdp1.SetScaleFactor(4)
+		}
+	case "texture_filtering":
+		e.vdp1.SetTextureFiltering(value == "true" || value == "1" || value == "on")
+	case "aspect_ratio":
+		switch value {
+		case "4x3", "4:3":
+			e.displayProc.SetAspectRatioMode(Aspect4x3)
+		case "16x9", "16:9", "widescreen":
+			e.displayProc.SetAspectRatioMode(Aspect16x9)
+		case "integer":
+			e.displayProc.SetAspectRatioMode(AspectInteger)
+		case "stretch":
+			e.displayProc.SetAspectRatioMode(AspectStretch)
+		}
+	case "display_shader":
+		switch value {
+		case "crt":
+			e.displayProc.SetDisplayMode(DisplayModeCRT)
+		case "normal", "off", "none":
+			e.displayProc.SetDisplayMode(DisplayModeNormal)
+		}
+	case "upscaler_filter":
+		switch value {
+		case "bilinear":
+			e.displayProc.SetUpscalerFilter(FilterBilinear)
+		case "bicubic":
+			e.displayProc.SetUpscalerFilter(FilterBicubic)
+		case "hq2x":
+			e.displayProc.SetUpscalerFilter(FilterHQ2x)
+		case "hq4x":
+			e.displayProc.SetUpscalerFilter(FilterHQ4x)
+		case "xbrz":
+			e.displayProc.SetUpscalerFilter(FilterxBRZ)
+		case "nearest", "off":
+			e.displayProc.SetUpscalerFilter(FilterNearest)
+		}
+	case "crt_bloom":
+		if value == "true" || value == "on" {
+			e.displayProc.SetCRTBloom(0.5)
+		} else if value == "false" || value == "off" {
+			e.displayProc.SetCRTBloom(0.0)
+		}
+	case "crt_curvature":
+		e.displayProc.SetCRTCurvature(value == "true" || value == "1" || value == "on")
 	}
 }
 

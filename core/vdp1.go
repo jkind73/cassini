@@ -212,6 +212,10 @@ type VDP1 struct {
 	// the swap rate reflects what the player actually sees.
 	swapCount uint64
 
+	// Graphics enhancements configuration
+	scaleFactor      int
+	textureFiltering bool
+
 	// lateEraseFB is the buffer captured by VBlankIn when a
 	// manual-mode erase (FCM=1+FCT=0 with a deferred-bit FBCR write
 	// or VBE rising) is requested: the display framebuffer as of the
@@ -663,4 +667,32 @@ func (v *VDP1) FBHeight() int {
 // coordinates come from the VDP2.
 func (v *VDP1) FBRotated() bool {
 	return v.tvm() == 2 || v.tvm() == 3
+}
+
+// SetScaleFactor configures internal 3D resolution scaling (1x to 4x).
+func (v *VDP1) SetScaleFactor(factor int) {
+	if factor < 1 {
+		factor = 1
+	} else if factor > 4 {
+		factor = 4
+	}
+	v.scaleFactor = factor
+}
+
+// ScaleFactor returns the internal resolution scale factor.
+func (v *VDP1) ScaleFactor() int {
+	if v.scaleFactor < 1 {
+		return 1
+	}
+	return v.scaleFactor
+}
+
+// SetTextureFiltering enables or disables 16-bit bilinear texture interpolation.
+func (v *VDP1) SetTextureFiltering(enabled bool) {
+	v.textureFiltering = enabled
+}
+
+// TextureFiltering returns true if bilinear texture filtering is enabled.
+func (v *VDP1) TextureFiltering() bool {
+	return v.textureFiltering
 }
