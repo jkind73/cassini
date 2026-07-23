@@ -19,6 +19,8 @@ const (
 	FilterBilinear                      // Bilinear interpolation
 	FilterBicubic                       // Bicubic smoothing
 	FilterHQ2x                          // High Quality 2x scaling
+	FilterHQ4x                          // High Quality 4x scaling
+	FilterxBRZ                          // xBRZ high-quality pixel scaler
 )
 
 // AspectRatioMode specifies the aspect ratio scaling mode.
@@ -26,6 +28,7 @@ type AspectRatioMode int
 
 const (
 	Aspect4x3 AspectRatioMode = iota // Native 4:3 aspect ratio (pillarboxed if widescreen)
+	Aspect16x9                       // Widescreen 16:9 aspect ratio
 	AspectInteger                    // Integer scaling (exact pixel multiple)
 	AspectStretch                    // Stretch to fill viewport
 )
@@ -36,6 +39,8 @@ type DisplayProcessor struct {
 	filter       UpscalerFilter
 	aspect       AspectRatioMode
 	crtIntensity float32
+	crtBloom     float32
+	crtCurvature bool
 }
 
 // NewDisplayProcessor creates a DisplayProcessor with default settings.
@@ -88,9 +93,19 @@ func (p *DisplayProcessor) SetCRTScanlineIntensity(intensity float32) {
 	p.crtIntensity = intensity
 }
 
-// ProcessFrame applies configured shaders (CRT scanlines, shadow mask) to an RGBA8888 framebuffer slice.
+// SetCRTBloom sets the phosphor bloom intensity (0.0 to 1.0).
+func (p *DisplayProcessor) SetCRTBloom(bloom float32) {
+	p.crtBloom = bloom
+}
+
+// SetCRTCurvature enables or disables CRT curved glass distortion.
+func (p *DisplayProcessor) SetCRTCurvature(enabled bool) {
+	p.crtCurvature = enabled
+}
+
+// ProcessFrame applies configured shader effects and upscaling filters to a RGBA image.
 func (p *DisplayProcessor) ProcessFrame(src []byte, width, height, stride int) []byte {
-	if p.mode == DisplayModeNormal || len(src) == 0 || width <= 0 || height <= 0 {
+	if len(src) == 0 || width <= 0 || height <= 0 {
 		return src
 	}
 
@@ -104,9 +119,10 @@ func (p *DisplayProcessor) ProcessFrame(src []byte, width, height, stride int) [
 	return dst
 }
 
-// applyCRTShader applies horizontal CRT scanlines and aperture grille subpixel attenuation.
+// applyCRTShader applies CRT scanlines, aperture grille subpixel attenuation, and phosphor bloom.
 func (p *DisplayProcessor) applyCRTShader(buf []byte, width, height, stride int) {
 	darkenFactor := 1.0 - p.crtIntensity
+	bloomFactor := p.crtBloom
 
 	for y := 0; y < height; y++ {
 		// Scanline dimming on odd scanlines
@@ -140,6 +156,22 @@ func (p *DisplayProcessor) applyCRTShader(buf []byte, width, height, stride int)
 			case 2:
 				r *= 0.85
 				g *= 0.85
+			}
+
+			// Phosphor bloom effect
+			if bloomFactor > 0 {
+				r += r * bloomFactor * 0.2
+				g += g * bloomFactor * 0.2
+				b += b * bloomFactor * 0.2
+				if r > 255 {
+					r = 255
+				}
+				if g > 255 {
+					g = 255
+				}
+				if b > 255 {
+					b = 255
+				}
 			}
 
 			buf[off] = uint8(r)

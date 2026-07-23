@@ -149,6 +149,8 @@ type Emulator struct {
 	stateBody    []byte
 	statePayload []byte
 	stateComp    stateCompressor
+
+	displayProc *DisplayProcessor
 }
 
 // NewEmulator creates a Saturn emulator with all components wired together.
@@ -168,36 +170,42 @@ func NewEmulator() *Emulator {
 	master := sh2.New(bus, true)
 	slave := sh2.New(bus, false)
 
-	e := &Emulator{
-		bus:     bus,
-		master:  master,
-		slave:   slave,
-		scu:     scu,
-		smpc:    smpc,
-		vdp1:    vdp1,
-		vdp2:    vdp2,
-		scsp:    scsp,
-		cdblock: cdblock,
+	emu := &Emulator{
+		bus:         bus,
+		scu:         scu,
+		smpc:        smpc,
+		vdp1:        vdp1,
+		vdp2:        vdp2,
+		scsp:        scsp,
+		cdblock:     cdblock,
+		master:      master,
+		slave:       slave,
+		displayProc: NewDisplayProcessor(),
 	}
 
 	// Wire boundary-crossing callbacks. SCU drives master IRL. SMPC
 	// requests the master NMI, defers its system reset to the frame
 	// boundary, and resets the slave directly.
 	scu.SetIRLHandler(master.SetIRL, master.ClearIRL)
-	smpc.systemReset = func() { e.pendingSystemReset.Store(true) }
+	smpc.systemReset = func() { emu.pendingSystemReset.Store(true) }
 	smpc.masterNMI = master.NMIRequest
-	smpc.masterNMIDeferred = func() { e.pendingMasterNMI.Store(true) }
+	smpc.masterNMIDeferred = func() { emu.pendingMasterNMI.Store(true) }
 	smpc.slaveReset = slave.Reset
 	master.SetIRLAck(scu.AcknowledgeInterrupt)
 
 	// VDP worker (VDP1 walk + VDP2 line render) and slave SH-2 worker
 	// kick channels.
-	e.vdpJobCh = make(chan struct{}, 1)
-	e.secondaryJobCh = make(chan struct{}, 1)
+	emu.vdpJobCh = make(chan struct{}, 1)
+	emu.secondaryJobCh = make(chan struct{}, 1)
 
-	e.recalcTiming()
+	emu.recalcTiming()
 
-	return e
+	return emu
+}
+
+// DisplayProcessor returns the post-processing display processor.
+func (e *Emulator) DisplayProcessor() *DisplayProcessor {
+	return e.displayProc
 }
 
 // systemReset is invoked when SMPC processes a CKCHG / SYSRES command.
