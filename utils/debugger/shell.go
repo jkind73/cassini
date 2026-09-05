@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package main
@@ -11,8 +11,8 @@ import (
 	"github.com/ebitenui/ebitenui"
 	"github.com/ebitenui/ebitenui/image"
 	"github.com/ebitenui/ebitenui/widget"
-	"github.com/user-none/erings/utils/debugger/client"
-	"github.com/user-none/erings/utils/debugger/ui"
+	"github.com/jkind73/cassini/utils/debugger/client"
+	"github.com/jkind73/cassini/utils/debugger/ui"
 )
 
 // buildMainScreen shows the connected layout: execution controls on
@@ -75,6 +75,12 @@ func (a *app) buildTopBar() *widget.Container {
 		ui.Button("Resume", func(args *widget.ButtonClickedEventArgs) {
 			a.sendLogged("resume")
 		}),
+		ui.Button("C-Pause", func(args *widget.ButtonClickedEventArgs) {
+			a.sendLogged("cyclepause")
+		}),
+		ui.Button("C-Step", func(args *widget.ButtonClickedEventArgs) {
+			a.cycleStep()
+		}),
 		ui.Button("Step", func(args *widget.ButtonClickedEventArgs) {
 			a.step()
 		}),
@@ -106,11 +112,12 @@ func (a *app) buildMiddle() *widget.Container {
 	left := widget.NewContainer(
 		widget.ContainerOpts.Layout(widget.NewGridLayout(
 			widget.GridLayoutOpts.Columns(1),
-			widget.GridLayoutOpts.Stretch([]bool{true}, []bool{false, true}),
+			widget.GridLayoutOpts.Stretch([]bool{true}, []bool{false, true, true}),
 			widget.GridLayoutOpts.Spacing(0, ui.Px(8)),
 		)),
 	)
 	left.AddChild(a.buildMemoryPanel())
+	left.AddChild(a.buildRegPanel())
 	left.AddChild(a.buildSearchPanel())
 	middle.AddChild(left)
 
@@ -192,6 +199,19 @@ func (a *app) step() {
 		n = v
 	}
 	a.sendLogged(fmt.Sprintf("frame %d", n))
+}
+
+func (a *app) cycleStep() {
+	n := 1
+	if s := strings.TrimSpace(a.stepInput.GetText()); s != "" {
+		v, err := strconv.Atoi(s)
+		if err != nil || v < 1 {
+			a.logf("step count must be a positive integer")
+			return
+		}
+		n = v
+	}
+	a.sendLogged(fmt.Sprintf("cycle-step %d", n))
 }
 
 // pollState requests a one-off status refresh outside the periodic

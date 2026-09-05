@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package sh2
@@ -39,6 +39,11 @@ func TestServiceException(t *testing.T) {
 
 	cyclesBefore := cpu.cycles
 	cpu.serviceException(vecTRAP)
+
+	// Step through the 5-cycle exception pipeline machine
+	for cpu.pendingOp == popException {
+		cpu.Clock()
+	}
 
 	// R15 should be decremented by 8
 	if cpu.reg.R[15] != 0x07F8 {
@@ -92,6 +97,9 @@ func TestServiceExceptionCacheCoherency(t *testing.T) {
 	_ = cpu.Read32(0x07F8)
 
 	cpu.serviceException(vecTRAP)
+	for cpu.pendingOp == popException {
+		cpu.Clock()
+	}
 
 	if got := cpu.Read32(0x07F8); got != 0x0400 {
 		t.Errorf("cached pushed PC = 0x%08X, want 0x00000400", got)
@@ -529,6 +537,9 @@ func TestAddressErrorAcceptedAfterInterruptDisabledInstr(t *testing.T) {
 	}
 
 	cpu.Clock()
+	for cpu.pendingOp == popException {
+		cpu.Clock()
+	}
 
 	if cpu.reg.PC != handler {
 		t.Errorf("address error not accepted: PC = 0x%08X, want 0x%08X (handler)",
@@ -1173,7 +1184,7 @@ func TestInterruptNotAcceptedInRTSDelaySlot(t *testing.T) {
 	})
 }
 
-// Erings internal: the load-use stall inserts one cycle during which
+// Cassini internal: the load-use stall inserts one cycle during which
 // an instruction whose source depends on the preceding load's dest is
 // deferred. processInterrupt (cpu.go:218) gates acceptance on
 // !c.hasDeferred so the stall cycle cannot be interrupted. HM treats

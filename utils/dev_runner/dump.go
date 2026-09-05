@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package main
@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/user-none/erings/internal/statedump"
+	"github.com/jkind73/cassini/internal/statedump"
 )
 
 // serviceDumpRequest serializes the machine and explodes the state to

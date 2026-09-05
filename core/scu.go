@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
@@ -29,6 +29,17 @@ type SCU struct {
 
 	// DMA deferred interrupt delay (system cycles remaining, -1 = inactive)
 	dmaDelay [3]int
+
+	// Per-unit cycle-stealing step state per level (SCU Manual Sec 2.1 & 3.2)
+	dmaActive     [3]bool   // Is level currently performing unit steps
+	dmaSrc        [3]uint32 // Current unit step source address
+	dmaDst        [3]uint32 // Current unit step destination address
+	dmaRemaining  [3]uint32 // Remaining byte count
+	dmaReadInc    [3]uint32 // Read stride
+	dmaWriteStep  [3]uint32 // Write stride
+	dmaIndirect   [3]bool   // Is transfer indirect
+	dmaTableAddr  [3]uint32 // Indirect descriptor table address
+	dmaCountMask  [3]uint32 // Indirect count mask
 
 	// DSP microcode processor
 	dsp scuDSP
@@ -209,14 +220,23 @@ func (s *SCU) Reset() {
 	}
 }
 
-// TickSystemCycles advances DMA deferred interrupt countdowns by the
-// given number of system cycles. When a countdown reaches zero the
-// level is closed out via finishDMA, which raises the DMA-end
-// interrupt and fires any pending start-factor trigger held during
-// the transfer.
+// TickSystemCycles advances SCU DMA transfer unit steps and countdowns by the
+// given number of system cycles. Per SCU Manual Sec 2.1 & 3.2, transfers move
+// in 32-bit units with cycle-stealing yielding between units.
 func (s *SCU) TickSystemCycles(cycles uint32) {
 	s.lockIRQ()
 	defer s.unlockIRQ()
+
+	// Service active DMA level cycle-stealing unit steps
+	for step := uint32(0); step < cycles; step++ {
+		for lvl := 0; lvl < 3; lvl++ {
+			if s.dmaActive[lvl] {
+				s.stepDMAUnit(lvl)
+				break // Highest level (0 > 1 > 2) takes bus priority per step
+			}
+		}
+	}
+
 	for lvl := range 3 {
 		if s.dmaDelay[lvl] < 0 {
 			continue
@@ -244,6 +264,92 @@ func (s *SCU) TickSystemCycles(cycles uint32) {
 		s.dspCycleCarry &= 1
 		if budget > 0 {
 			s.dsp.Step(budget)
+		}
+	}
+}
+
+// stepDMAUnit executes one 32-bit unit transfer step for the given level.
+func (s *SCU) stepDMAUnit(lvl int) {
+	if s.dmaRemaining[lvl] == 0 {
+		if s.dmaIndirect[lvl] {
+			s.advanceIndirectTable(lvl)
+		} else {
+			s.dmaActive[lvl] = false
+		}
+		return
+	}
+
+	src := s.dmaSrc[lvl]
+	dst := s.dmaDst[lvl]
+
+	if !scuDMAAccessible(src) || !scuDMAAccessible(dst) {
+		s.dmaRemaining[lvl] = 0
+		s.dmaActive[lvl] = false
+		return
+	}
+
+	if s.dmaRemaining[lvl] >= 4 && src%4 == 0 && dst%4 == 0 {
+		s.bus.DMAWrite32(dst, s.bus.Read32(src))
+		s.dmaSrc[lvl] += s.dmaReadInc[lvl]
+		s.dmaDst[lvl] += s.dmaWriteStep[lvl]
+		s.dmaRemaining[lvl] -= 4
+	} else {
+		s.bus.DMAWrite8(dst, s.bus.Read8(src))
+		if s.dmaReadInc[lvl] != 0 {
+			s.dmaSrc[lvl] += 1
+		}
+		if s.dmaWriteStep[lvl] != 0 {
+			s.dmaDst[lvl] += 1
+		}
+		s.dmaRemaining[lvl] -= 1
+	}
+
+	if s.dmaRemaining[lvl] == 0 {
+		if s.dmaIndirect[lvl] {
+			s.advanceIndirectTable(lvl)
+		} else {
+			s.dmaActive[lvl] = false
+			// Address RUP/WUP update on direct completion (Sec 2.3)
+			if s.dmaMD[lvl]&(1<<16) != 0 {
+				s.dmaR[lvl] = s.dmaSrc[lvl]
+			}
+			if s.dmaMD[lvl]&(1<<8) != 0 {
+				s.dmaW[lvl] = s.dmaDst[lvl]
+			}
+		}
+	}
+}
+
+// advanceIndirectTable reads the next descriptor entry from the indirect table (Sec 2.3).
+func (s *SCU) advanceIndirectTable(lvl int) {
+	s.dmaTableAddr[lvl] += 0x0C
+	tableAddr := s.dmaTableAddr[lvl]
+
+	countRaw := s.bus.Read32(tableAddr)
+	dstRaw := s.bus.Read32(tableAddr + 4)
+	srcRaw := s.bus.Read32(tableAddr + 8)
+
+	count := countRaw & s.dmaCountMask[lvl]
+	dst := dstRaw & 0x07FFFFFF
+	src := srcRaw & 0x07FFFFFF
+	last := srcRaw&0x80000000 != 0
+
+	if count == 0 {
+		if lvl == 0 {
+			count = 0x100000
+		} else {
+			count = 0x2000
+		}
+	}
+
+	s.dmaSrc[lvl] = src
+	s.dmaDst[lvl] = dst
+	s.dmaRemaining[lvl] = count
+
+	if last {
+		s.dmaIndirect[lvl] = false
+		if s.dmaMD[lvl]&(1<<8) != 0 {
+			s.dmaW[lvl] = tableAddr + 0x0C
 		}
 	}
 }
@@ -711,8 +817,9 @@ func (s *SCU) triggerDMA(lvl int) {
 // match a pending DMA start factor. The factor values are:
 // 0=V-Blank-IN, 1=V-Blank-OUT, 2=H-Blank-IN, 3=Timer0, 4=Timer1,
 // 5=Sound Request, 6=Sprite Draw End.
+// SCU Manual Sec 2.4: Priority arbitration is strictly Level 0 > Level 1 > Level 2.
 func (s *SCU) checkDMATrigger(factor uint32) {
-	for lvl := range 3 {
+	for lvl := 0; lvl < 3; lvl++ {
 		if !s.dmaPending[lvl] {
 			continue
 		}
@@ -736,6 +843,8 @@ func (s *SCU) checkDMATrigger(factor uint32) {
 		} else {
 			s.executeDMA(lvl)
 		}
+		// Higher level (Level 0) takes priority over lower levels
+		break
 	}
 }
 

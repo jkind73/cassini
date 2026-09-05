@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package main
@@ -6,6 +6,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"sync"
 	"time"
@@ -45,12 +46,34 @@ func ensureOtoContext() (*oto.Context, error) {
 			Format:       oto.FormatSignedInt16LE,
 			BufferSize:   50 * time.Millisecond,
 		}
-		var readyChan chan struct{}
-		otoCtx, readyChan, otoInitErr = oto.NewContext(op)
-		if otoInitErr != nil {
-			return
+
+		type result struct {
+			ctx   *oto.Context
+			ready chan struct{}
+			err   error
 		}
-		<-readyChan
+
+		ch := make(chan result, 1)
+		go func() {
+			c, r, e := oto.NewContext(op)
+			ch <- result{ctx: c, ready: r, err: e}
+		}()
+
+		select {
+		case res := <-ch:
+			if res.err != nil {
+				otoInitErr = res.err
+				return
+			}
+			select {
+			case <-res.ready:
+				otoCtx = res.ctx
+			case <-time.After(500 * time.Millisecond):
+				otoInitErr = fmt.Errorf("audio device ready signal timeout")
+			}
+		case <-time.After(500 * time.Millisecond):
+			otoInitErr = fmt.Errorf("oto.NewContext timeout")
+		}
 	})
 	return otoCtx, otoInitErr
 }
@@ -89,11 +112,24 @@ func newAudioPlayer(fps int) (*audioPlayer, error) {
 		silentFrame: make([]byte, bytesPerFrame),
 	}
 
-	player := ctx.NewPlayer(rb)
-	player.SetBufferSize(otoPlayerBufferBytes)
-	player.SetVolume(1.0)
-	player.Play()
-	ap.player = player
+	type playerResult struct {
+		player *oto.Player
+	}
+	pCh := make(chan playerResult, 1)
+	go func() {
+		p := ctx.NewPlayer(rb)
+		p.SetBufferSize(otoPlayerBufferBytes)
+		p.SetVolume(1.0)
+		p.Play()
+		pCh <- playerResult{player: p}
+	}()
+
+	select {
+	case res := <-pCh:
+		ap.player = res.player
+	case <-time.After(500 * time.Millisecond):
+		log.Printf("Warning: ctx.NewPlayer timed out; audio disabled")
+	}
 
 	return ap, nil
 }
@@ -101,10 +137,16 @@ func newAudioPlayer(fps int) (*audioPlayer, error) {
 // buffered returns the current ring fill in bytes. The timer-pacing
 // controller reads this as its rate-lock reference.
 func (a *audioPlayer) buffered() int {
+	if a == nil || a.ringBuffer == nil {
+		return 0
+	}
 	return a.ringBuffer.Buffered()
 }
 
 func (a *audioPlayer) queueSamples(samples []int16) {
+	if a == nil || a.player == nil || a.ringBuffer == nil {
+		return
+	}
 	if len(samples) == 0 {
 		a.ringBuffer.Write(a.silentFrame)
 		return
@@ -123,10 +165,9 @@ func (a *audioPlayer) queueSamples(samples []int16) {
 }
 
 func (a *audioPlayer) close() {
-	// Close the ring first so a producer blocked in ring.Write (full ring)
-	// wakes and the emulation loop can observe shouldRun()==false and exit.
-	// The timer-paced producer otherwise parks only in time.Sleep (bounded by
-	// one frame interval), so no demand-side wake is needed.
+	if a == nil {
+		return
+	}
 	if a.ringBuffer != nil {
 		a.ringBuffer.Close()
 	}

@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
@@ -903,7 +903,7 @@ func TestDSPBTMLoop(t *testing.T) {
 	// prog[0]: MVI #3, LOP
 	d.prog[0] = uint32(0x80000000) | (0xA << 26) | 3
 	// prog[1]: MVI #0, RX
-	d.prog[1] = uint32(0x80000000) | (4 << 26) | 0
+	d.prog[1] = uint32(0x80000000) | (4 << 26)
 	// prog[2]: MVI #1, TOP (save loop start)
 	// Actually TOP is set via D1-Bus or directly. Let's use D1-Bus approach.
 	// Simpler: set TOP and LOP directly, then loop body + BTM
@@ -914,7 +914,7 @@ func TestDSPBTMLoop(t *testing.T) {
 	d.prog[0] = uint32(0x80000000) | (0xA << 26) | 3
 	// prog[1]: D1: MOV SImm(1), MC0 (increment counter in data RAM)
 	// d1Op=1, dst=0 (RAM0), imm=1
-	d.prog[1] = uint32(1<<12) | (0 << 8) | 1
+	d.prog[1] = uint32(1<<12) | 1
 	// prog[2]: BTM (loop back if LOP > 0)
 	d.prog[2] = 0xE0000000
 	// prog[3]: END (delay slot for BTM when LOP reaches 0, then falls through)
@@ -953,7 +953,7 @@ func TestDSPLPSLoop(t *testing.T) {
 	// prog[1]: LPS
 	d.prog[1] = 0xE8000000
 	// prog[2]: D1: MOV SImm(1), MC0 (write 1 to data RAM, CT0 increments)
-	d.prog[2] = uint32(1<<12) | (0 << 8) | 1
+	d.prog[2] = uint32(1<<12) | 1
 	// prog[3]: END
 	d.prog[3] = 0xF0000000
 

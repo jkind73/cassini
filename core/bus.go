@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
@@ -99,9 +99,10 @@ func init() {
 	}
 }
 
-// busAreaOf returns the lock area for a masked (addr & 0x07FFFFFF)
+// busAreaOf returns the lock area for a masked (addr & 0x0FFFFFFF)
 // address.
 func busAreaOf(masked uint32) uint8 {
+	masked &= 0x0FFFFFFF
 	a := busAreaTable[masked>>20]
 	switch a {
 	case areaSplitBBusSCU:
@@ -788,9 +789,9 @@ func (b *Bus) read32Impl(addr uint32) uint32 {
 	case masked >= 0x05C80000 && masked <= 0x05CBFFFF:
 		return b.vdp1.ReadFB32(masked - 0x05C80000)
 	case masked >= 0x05D00000 && masked <= 0x05D00017:
-		// VDP1 Registers: word access only
-		fmt.Printf("[BUS] invalid 32-bit read from VDP1 register 0x%08X\n", addr)
-		return 0
+		// VDP1 Registers: 32-bit reads composed from two 16-bit reads
+		off := (masked - 0x05D00000) &^ 3
+		return uint32(b.vdp1.Read(off))<<16 | uint32(b.vdp1.Read(off+2))
 	case masked >= 0x05E00000 && masked <= 0x05E7FFFF:
 		return b.vdp2.ReadVRAM32(masked - 0x05E00000)
 	case masked >= 0x05F00000 && masked <= 0x05F00FFF:
@@ -1045,8 +1046,10 @@ func (b *Bus) write32Impl(addr uint32, val uint32) {
 		b.vdp1.WriteFB32(masked-0x05C80000, val)
 		return
 	case masked >= 0x05D00000 && masked <= 0x05D00017:
-		// VDP1 Registers: word access only
-		fmt.Printf("[BUS] invalid 32-bit write to VDP1 register 0x%08X = 0x%08X\n", addr, val)
+		// VDP1 Registers: 32-bit writes split into two 16-bit writes per hardware bus-splitting
+		off := (masked - 0x05D00000) &^ 3
+		b.vdp1.Write(off, uint16(val>>16))
+		b.vdp1.Write(off+2, uint16(val))
 		return
 	case masked >= 0x05E00000 && masked <= 0x05E7FFFF:
 		b.vdp2.WriteVRAM32(masked-0x05E00000, val)

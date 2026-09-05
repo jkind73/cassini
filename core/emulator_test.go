@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
@@ -6,7 +6,7 @@ package core
 import (
 	"testing"
 
-	"github.com/user-none/erings/core/sh2"
+	"github.com/jkind73/cassini/core/sh2"
 )
 
 func TestNewEmulator(t *testing.T) {
@@ -297,6 +297,34 @@ func TestEmulatorSetInputMapping(t *testing.T) {
 	pad = e.smpc.padState[0]
 	if pad&(1<<11) != 0 {
 		t.Errorf("Start pressed: b1 bit 3 should be clear, pad = 0x%04X", pad)
+	}
+}
+
+func TestEmulatorRegionLockModes(t *testing.T) {
+	e := NewEmulator()
+
+	// Test Japan explicit mode
+	e.SetOption("region_lock", "Japan")
+	if e.smpc.AreaCode() != 0x01 {
+		t.Errorf("Japan AreaCode = 0x%02X, want 0x01", e.smpc.AreaCode())
+	}
+
+	// Test USA explicit mode
+	e.SetOption("region_lock", "USA")
+	if e.smpc.AreaCode() != 0x04 {
+		t.Errorf("USA AreaCode = 0x%02X, want 0x04", e.smpc.AreaCode())
+	}
+
+	// Test Europe (PAL) explicit mode
+	e.SetOption("region_lock", "Europe (PAL)")
+	if e.smpc.AreaCode() != 0x0C {
+		t.Errorf("PAL AreaCode = 0x%02X, want 0x0C", e.smpc.AreaCode())
+	}
+
+	// Test HLE (Disabled) mode
+	e.SetOption("region_lock", "HLE (Disabled)")
+	if e.regionMode != "HLE (Disabled)" {
+		t.Errorf("regionMode = %s, want HLE (Disabled)", e.regionMode)
 	}
 }
 

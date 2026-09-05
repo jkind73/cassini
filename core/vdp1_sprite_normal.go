@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
@@ -20,8 +20,8 @@ func (v *VDP1) startNormalSprite(cmd *vdp1Command, budget int32) (consumed int32
 	s.userClip = (cmd.pmod >> 9) & 3
 	s.flipH = cmd.ctrl&0x0010 != 0
 	s.flipV = cmd.ctrl&0x0020 != 0
-	s.drawX = int(cmd.xa) + int(v.localX)
-	s.drawY = int(cmd.ya) + int(v.localY)
+	s.drawX = int(int16(cmd.xa)) + int(v.localX)
+	s.drawY = int(int16(cmd.ya)) + int(v.localY)
 	s.isScaled = false
 
 	if s.charW == 0 || s.charH == 0 {

@@ -1,10 +1,10 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
 
 import (
-	"github.com/user-none/erings/core/sh2"
+	"github.com/jkind73/cassini/core/sh2"
 )
 
 // HLE replacement for the PER (peripheral) side of the 16 KB

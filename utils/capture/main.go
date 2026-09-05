@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Command capture replays a recorded session against a disc with no display,
@@ -22,9 +22,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jkind73/cassini/core"
+	"github.com/jkind73/cassini/internal/replay"
 	"github.com/user-none/eblitui/romloader"
-	"github.com/user-none/erings/core"
-	"github.com/user-none/erings/internal/replay"
 )
 
 // Watchdog thresholds. The run loop has no pacing, so a healthy headless run

@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package debugserver
@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/user-none/erings/internal/debugserver/responses"
+	"github.com/jkind73/cassini/internal/debugserver/responses"
 )
 
 // searchRegionState is one region's share of an active search. It holds

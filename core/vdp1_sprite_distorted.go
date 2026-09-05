@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
@@ -89,14 +89,14 @@ func (v *VDP1) startDistortedSprite(cmd *vdp1Command, budget int32) (consumed in
 
 	lx := int(v.localX)
 	ly := int(v.localY)
-	d.ax = int(cmd.xa) + lx
-	d.ay = int(cmd.ya) + ly
-	d.bx = int(cmd.xb) + lx
-	d.by = int(cmd.yb) + ly
-	d.cx = int(cmd.xc) + lx
-	d.cy = int(cmd.yc) + ly
-	d.dx = int(cmd.xd) + lx
-	d.dy = int(cmd.yd) + ly
+	d.ax = int(int16(cmd.xa)) + lx
+	d.ay = int(int16(cmd.ya)) + ly
+	d.bx = int(int16(cmd.xb)) + lx
+	d.by = int(int16(cmd.yb)) + ly
+	d.cx = int(int16(cmd.xc)) + lx
+	d.cy = int(int16(cmd.yc)) + ly
+	d.dx = int(int16(cmd.xd)) + lx
+	d.dy = int(int16(cmd.yd)) + ly
 
 	d.bboxMinX = intMin(intMin(d.ax, d.bx), intMin(d.cx, d.dx))
 	d.bboxMinY = intMin(intMin(d.ay, d.by), intMin(d.cy, d.dy))

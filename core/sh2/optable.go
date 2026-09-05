@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package sh2
@@ -29,7 +29,11 @@ func init() {
 }
 
 func opIllegal(c *CPU) {
-	c.serviceException(vecIllegalInstr)
+	if c.inDelay {
+		c.serviceException(vecSlotIllegal)
+	} else {
+		c.serviceException(vecIllegalInstr)
+	}
 }
 
 // fillRange assigns handler to all opcodes in [base, base+count).

@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/klauspost/compress/s2"
-	"github.com/user-none/erings/core/sh2"
+	"github.com/jkind73/cassini/core/sh2"
 	m68k "github.com/user-none/go-chip-m68k"
 )
 
@@ -34,11 +34,11 @@ import (
 // the header carries its SHA-256 and the image is reloaded at runtime.
 // An all-zero biosHash marks a state captured under the HLE BIOS.
 const (
-	stateMagic = "ERINGSST"
+	stateMagic = "CASSINIST"
 
 	// stateVersion is written into every state header. Deserialize
 	// rejects a file whose version is greater (written by a newer
-	// erings) with a "state is from a newer version" error. Raised
+	// cassini) with a "state is from a newer version" error. Raised
 	// when fields are added; older files simply lack the new fields,
 	// which read as zero values on load.
 	stateVersion = uint32(3)
@@ -3045,13 +3045,13 @@ func (e *Emulator) Deserialize(data []byte) error {
 		return errors.New("savestate: file too short")
 	}
 	if string(data[:len(stateMagic)]) != stateMagic {
-		return errors.New("savestate: not an erings save state (bad magic)")
+		return errors.New("savestate: not an cassini save state (bad magic)")
 	}
 	pos += len(stateMagic)
 	version := binary.BigEndian.Uint32(data[pos:])
 	pos += 4
 	if version > stateVersion {
-		return fmt.Errorf("savestate: state version %d is from a newer erings (max supported %d)", version, stateVersion)
+		return fmt.Errorf("savestate: state version %d is from a newer cassini (max supported %d)", version, stateVersion)
 	}
 	if version < stateMinVersion {
 		return fmt.Errorf("savestate: state version %d is too old (minimum supported %d)", version, stateMinVersion)

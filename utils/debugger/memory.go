@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package main
@@ -12,9 +12,9 @@ import (
 
 	"github.com/ebitenui/ebitenui/image"
 	"github.com/ebitenui/ebitenui/widget"
-	"github.com/user-none/erings/internal/debugserver/responses"
-	"github.com/user-none/erings/utils/debugger/client"
-	"github.com/user-none/erings/utils/debugger/ui"
+	"github.com/jkind73/cassini/internal/debugserver/responses"
+	"github.com/jkind73/cassini/utils/debugger/client"
+	"github.com/jkind73/cassini/utils/debugger/ui"
 )
 
 // memPollTicks is the memory window refresh cadence in 60Hz ticks

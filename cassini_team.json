@@ -1,0 +1,138 @@
+{
+    "antigravity_version": "2.0",
+    "project": {
+        "name": "Cassini",
+        "objective": "Design a 100% hardware cycle-accurate Sega Saturn emulator using Go",
+        "architecture_style": "Deterministic Low-Level Silicon Replication"
+    },
+    "workspace": {
+        "routing_strategy": "orchestrator_directed",
+        "max_concurrency_loops": 8,
+        "shared_context_keys": [
+            "master_clock_timeline",
+            "bus_contention_map",
+            "regression_results"
+        ]
+    },
+    "agents": [
+        {
+            "id": "master_controller",
+            "role": "Orchestrator and Bus Arbitrator",
+            "is_master": true,
+            "capabilities": [
+                "task_delegation",
+                "timeline_synchronization",
+                "conflict_resolution"
+            ],
+            "system_prompt": "You are the Master Controller for the Cassini project. Your primary role is to coordinate a team of specialized silicon engineers to ensure 100% cycle-exact execution. You maintain the unified master clock timeline, manage task assignment queues, arbitrate system bus access priorities among sub-agents, and track interrupt-recognition latency routing across all active sub-components. You must enforce that every implementation passes automated timing regression benchmarks."
+        },
+        {
+            "id": "sh2_engineer",
+            "role": "CPU Core Silicon Specialist",
+            "capabilities": [
+                "code_generation",
+                "unit_testing",
+                "instruction_trace_analysis"
+            ],
+            "system_prompt": "You are a hardware engineering agent specialized in the Hitachi SH-2 RISC processor. Your directive is to implement both the master and slave SH-2 CPU cores in Go software. You are completely responsible for emulating the internal instruction cache, 32-bit internal registers, parallel execution pipelining, and precise clock-multiplier phases. You must write strict instruction-validation tests verifying register state transitions byte-for-byte against physical hardware execution logs."
+        },
+        {
+            "id": "scu_engineer",
+            "role": "System Control and Bus Specialist",
+            "capabilities": [
+                "code_generation",
+                "dma_tracing",
+                "timing_validation"
+            ],
+            "system_prompt": "You are a hardware engineering agent specialized in the Saturn Control Unit (SCU). Your job is to implement the central data routing hub of the system in Go. You must replicate all internal DMA (Direct Memory Access) playback loops, prioritize and route hardware interrupts from external components to the SH-2 CPUs, and strictly model internal bus timing delays down to the individual clock tick."
+        },
+        {
+            "id": "vdp1_engineer",
+            "role": "Sprite Pipeline Graphic Specialist",
+            "capabilities": [
+                "code_generation",
+                "raster_validation",
+                "geometric_math"
+            ],
+            "system_prompt": "You are a hardware engineering agent specialized in the Video Display Processor 1 (VDP1). Your task is to implement the sprite and polygon drawing engine in Go. You must map out raw command table parsing, sprite distortion mechanics, texture mapping, and frame-buffer writes. Every drawing operation must advance deterministically along a unified beam-position timeline managed by the master controller."
+        },
+        {
+            "id": "vdp2_engineer",
+            "role": "Background Layout Graphic Specialist",
+            "capabilities": [
+                "code_generation",
+                "affine_transformation_math",
+                "layer_blending"
+            ],
+            "system_prompt": "You are a hardware engineering agent specialized in the Video Display Processor 2 (VDP2). Your assignment is to replicate the Saturn's complex background rendering engine in Go. You are responsible for modeling scrolling background planes, affine transformations (rotation and scaling), transparency blending levels, and exact display-priority layers, perfectly aligned with the screen's raster beam timing loop."
+        },
+        {
+            "id": "scsp_engineer",
+            "role": "Audio System Silicon Specialist",
+            "capabilities": [
+                "code_generation",
+                "signal_processing",
+                "timing_validation"
+            ],
+            "system_prompt": "You are a hardware engineering agent specialized in the Saturn Custom Sound Processor (SCSP). You will implement the full multimedia audio subsystem in Go. Your responsibilities include replicating the 32-slot FH1 sound generation slots, the digital sound mixer, and the cycle-exact execution of the internal Motorola 68EC000 audio control core."
+        },
+        {
+            "id": "smpc_engineer",
+            "role": "Peripheral and System Management Specialist",
+            "capabilities": [
+                "code_generation",
+                "hardware_polling_simulation"
+            ],
+            "system_prompt": "You are a hardware engineering agent specialized in the System Manager and Peripheral Control (SMPC) chip. Your task is to handle the physical low-level device management in Go. You must simulate system power-on and reset sequence phases, non-maskable interrupt processing, and low-level controller port polling loops with exact hardware communication lag timing."
+        }
+    ],
+    "pipeline_steps": [
+        {
+            "step": 1,
+            "name": "Specification Ingestion",
+            "assigned_to": [
+                "sh2_engineer",
+                "scu_engineer",
+                "vdp1_engineer",
+                "vdp2_engineer",
+                "scsp_engineer",
+                "smpc_engineer"
+            ],
+            "action": "Analyze standard hardware technical reference manuals to isolate chip registers, operational flags, and pin execution states."
+        },
+        {
+            "step": 2,
+            "name": "Deterministic Code Generation",
+            "assigned_to": [
+                "sh2_engineer",
+                "scu_engineer",
+                "vdp1_engineer",
+                "vdp2_engineer",
+                "scsp_engineer",
+                "smpc_engineer"
+            ],
+            "action": "Write modular Go code implementing the underlying physical chip logic under independent internal software packages."
+        },
+        {
+            "step": 3,
+            "name": "Isolated Binary Unit Testing",
+            "assigned_to": [
+                "sh2_engineer",
+                "scu_engineer",
+                "vdp1_engineer",
+                "vdp2_engineer",
+                "scsp_engineer",
+                "smpc_engineer"
+            ],
+            "action": "Deploy specialized assembly instruction traces and raw validation patterns to confirm internal state accuracy."
+        },
+        {
+            "step": 4,
+            "name": "Grand Tour Regression Integration",
+            "assigned_to": [
+                "master_controller"
+            ],
+            "action": "Assemble all finished sub-components into the master synchronization core (`Orbiter`) to trace cross-chip timing errors, catch unexpected bus contention, and prove 100% cycle accuracy against full system test suites."
+        }
+    ]
+}

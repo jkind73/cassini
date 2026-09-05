@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
@@ -116,10 +116,10 @@ func (v *VDP1) startLine(cmd *vdp1Command, budget int32) (consumed int32, done b
 	s.userClip = (cmd.pmod >> 9) & 3
 	s.clipX, s.clipY = v.clipBounds()
 
-	x1 := int(cmd.xa) + int(v.localX)
-	y1 := int(cmd.ya) + int(v.localY)
-	x2 := int(cmd.xb) + int(v.localX)
-	y2 := int(cmd.yb) + int(v.localY)
+	x1 := int(int16(cmd.xa)) + int(v.localX)
+	y1 := int(int16(cmd.ya)) + int(v.localY)
+	x2 := int(int16(cmd.xb)) + int(v.localX)
+	y2 := int(int16(cmd.yb)) + int(v.localY)
 
 	preClip := cmd.pmod&0x0800 == 0
 	if preClip && preClipReject(intMin(x1, x2), intMin(y1, y2), intMax(x1, x2), intMax(y1, y2), s.clipX, s.clipY) {
@@ -179,14 +179,14 @@ func (v *VDP1) startPolyline(cmd *vdp1Command, budget int32) (consumed int32, do
 
 	lx := int(v.localX)
 	ly := int(v.localY)
-	s.legAx = int(cmd.xa) + lx
-	s.legAy = int(cmd.ya) + ly
-	s.legBx = int(cmd.xb) + lx
-	s.legBy = int(cmd.yb) + ly
-	s.legCx = int(cmd.xc) + lx
-	s.legCy = int(cmd.yc) + ly
-	s.legDx = int(cmd.xd) + lx
-	s.legDy = int(cmd.yd) + ly
+	s.legAx = int(int16(cmd.xa)) + lx
+	s.legAy = int(int16(cmd.ya)) + ly
+	s.legBx = int(int16(cmd.xb)) + lx
+	s.legBy = int(int16(cmd.yb)) + ly
+	s.legCx = int(int16(cmd.xc)) + lx
+	s.legCy = int(int16(cmd.yc)) + ly
+	s.legDx = int(int16(cmd.xd)) + lx
+	s.legDy = int(int16(cmd.yd)) + ly
 
 	preClip := cmd.pmod&0x0800 == 0
 	if preClip {

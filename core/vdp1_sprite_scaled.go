@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
@@ -33,17 +33,13 @@ func (v *VDP1) startScaledSprite(cmd *vdp1Command, budget int32) (consumed int32
 	ly := int(v.localY)
 
 	var dstX1, dstY1, dstX2, dstY2 int
-	var coordFlipH, coordFlipV bool
 
 	if zp == 0 {
 		// Two-coordinate mode: A=upper-left, C=lower-right
-		ax := int(cmd.xa) + lx
-		ay := int(cmd.ya) + ly
-		cx := int(cmd.xc) + lx
-		cy := int(cmd.yc) + ly
-
-		coordFlipH = cx < ax
-		coordFlipV = cy < ay
+		ax := int(int16(cmd.xa)) + lx
+		ay := int(int16(cmd.ya)) + ly
+		cx := int(int16(cmd.xc)) + lx
+		cy := int(int16(cmd.yc)) + ly
 
 		if ax <= cx {
 			dstX1, dstX2 = ax, cx
@@ -56,10 +52,18 @@ func (v *VDP1) startScaledSprite(cmd *vdp1Command, budget int32) (consumed int32
 			dstY1, dstY2 = cy, ay
 		}
 	} else {
-		ax := int(cmd.xa) + lx
-		ay := int(cmd.ya) + ly
-		dispW := int(cmd.xb)
-		dispH := int(cmd.yb)
+		ax := int(int16(cmd.xa)) + lx
+		ay := int(int16(cmd.ya)) + ly
+		dispW := int(int16(cmd.xb))
+		dispH := int(int16(cmd.yb))
+
+		// VDP1 Spec (Sec. 6.5): 0 width or height defaults to 1:1 character size
+		if dispW == 0 {
+			dispW = s.charW
+		}
+		if dispH == 0 {
+			dispH = s.charH
+		}
 
 		if dispW < 0 || dispH < 0 {
 			return 0, true
@@ -67,31 +71,38 @@ func (v *VDP1) startScaledSprite(cmd *vdp1Command, budget int32) (consumed int32
 
 		zpH := zp & 0x3
 		zpV := (zp >> 2) & 0x3
-		if zpH == 0 || zpV == 0 {
+
+		// Valid zpH: 1 (Left), 2 (Center), 3 (Right)
+		// Valid zpV: 0 (Upper), 1 (Center), 2 (Lower)
+		if zpH == 0 || zpV > 2 {
 			return 0, true
 		}
 
 		switch zpH {
-		case 1:
-			dstX1, dstX2 = ax, ax+dispW
-		case 2:
-			dstX1, dstX2 = ax-dispW/2, ax+(dispW+1)/2
-		case 3:
-			dstX1, dstX2 = ax-dispW, ax
+		case 1: // Left
+			dstX1 = ax
+			dstX2 = ax + dispW - 1
+		case 2: // Center
+			dstX1 = ax - dispW/2
+			dstX2 = dstX1 + dispW - 1
+		case 3: // Right
+			dstX1 = ax - dispW + 1
+			dstX2 = ax
 		}
 
 		switch zpV {
-		case 1:
-			dstY1, dstY2 = ay, ay+dispH
-		case 2:
-			dstY1, dstY2 = ay-dispH/2, ay+(dispH+1)/2
-		case 3:
-			dstY1, dstY2 = ay-dispH, ay
+		case 0: // Upper / Top
+			dstY1 = ay
+			dstY2 = ay + dispH - 1
+		case 1: // Center
+			dstY1 = ay - dispH/2
+			dstY2 = dstY1 + dispH - 1
+		case 2: // Lower / Bottom
+			dstY1 = ay - dispH + 1
+			dstY2 = ay
 		}
 	}
 
-	s.effFlipH = s.flipH != coordFlipH
-	s.effFlipV = s.flipV != coordFlipV
 	s.destW = dstX2 - dstX1 + 1
 	s.destH = dstY2 - dstY1 + 1
 	s.dstX1 = dstX1
@@ -124,6 +135,26 @@ func (v *VDP1) startScaledSprite(cmd *vdp1Command, budget int32) (consumed int32
 	s.endCodeCount = 0
 	s.prevSrcX = -1
 
+	// Effective flip for the rasterizer. In two-coordinate mode (zp==0)
+	// a coordinate inversion (A.x > C.x or A.y > C.y) acts as an
+	// additional flip, XOR'd with the CTRL DIR bits. In zoom-point mode
+	// the rectangle is always left-to-right / top-to-bottom, so only the
+	// CTRL DIR bits apply.
+	s.effFlipH = s.flipH
+	s.effFlipV = s.flipV
+	if zp == 0 {
+		ax := int(int16(cmd.xa)) + lx
+		ay := int(int16(cmd.ya)) + ly
+		cx := int(int16(cmd.xc)) + lx
+		cy := int(int16(cmd.yc)) + ly
+		if ax > cx {
+			s.effFlipH = !s.effFlipH
+		}
+		if ay > cy {
+			s.effFlipV = !s.effFlipV
+		}
+	}
+
 	return v.runScaledSprite(budget)
 }
 
@@ -138,8 +169,8 @@ func (v *VDP1) runScaledSprite(budget int32) (consumed int32, done bool) {
 	cycles := int32(0)
 
 	for s.outerIdx < s.destH {
-		// Midpoint sampling matches hardware: each dest pixel reads from
-		// the source position at its center, not its left edge.
+		hasDrawn := false
+
 		srcY := ((2*s.outerIdx + 1) * s.charH) / (2 * s.destH)
 		if s.effFlipV {
 			srcY = s.charH - 1 - srcY
@@ -179,13 +210,18 @@ func (v *VDP1) runScaledSprite(budget int32) (consumed int32, done bool) {
 
 				dot := v.readCharDot(s.charAddr, srcX, srcY, s.charW, s.colorMode)
 
-				if !s.hssEcdOff && !s.ecdOff && v.isEndCode(dot, s.colorMode) {
-					if srcX != s.prevSrcX {
-						s.prevSrcX = srcX
-						s.endCodeCount++
-						if s.endCodeCount >= 2 {
-							s.innerIdx = s.destW
-							break
+				// 1. End Code check (only active when ECD = 0 / !s.ecdOff)
+				if !s.ecdOff && v.isEndCode(dot, s.colorMode) {
+					if !s.hssEcdOff {
+						if hasDrawn {
+							if srcX != s.prevSrcX {
+								s.prevSrcX = srcX
+								s.endCodeCount++
+								if s.endCodeCount >= 2 {
+									s.innerIdx = s.destW
+									break
+								}
+							}
 						}
 					}
 					s.innerIdx++
@@ -197,6 +233,8 @@ func (v *VDP1) runScaledSprite(budget int32) (consumed int32, done bool) {
 					cycles++
 					continue
 				}
+
+				hasDrawn = true
 
 				fbX := s.dstX1 + s.innerIdx
 				pixel := v.dotToPixel(dot, v.cmdSnapshot.colr, s.colorMode)

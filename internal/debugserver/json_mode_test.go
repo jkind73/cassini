@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package debugserver
@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user-none/erings/internal/debugserver/responses"
+	"github.com/jkind73/cassini/internal/debugserver/responses"
 )
 
 // decodeLine unmarshals one JSON line into v and fails the test on any

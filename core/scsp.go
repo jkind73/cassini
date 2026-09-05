@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
@@ -462,7 +462,11 @@ func (sb *m68kBusAdaptor) Write32(addr uint32, val uint32) {
 	}
 }
 
-func (sb *m68kBusAdaptor) Reset() {}
+func (sb *m68kBusAdaptor) Reset() {
+	// The 68K RESET instruction asserts the CPU's external RESET pin (SCSP / RESET line).
+	// On the Saturn, this reset line triggers the Sound CPU / SCSP soft-reset gate.
+	sb.scsp.m68k.Reset()
+}
 
 // NewSCSP creates a new SCSP with sound RAM, registers, and MC68EC000.
 // The 68K is held in reset and not stepped until SMPC SNDON.
@@ -623,17 +627,15 @@ func (s *SCSP) Write(offset uint32, val uint16) {
 		s.unlockIntr()
 		return
 	case scspRegSCIPD:
-		// Per SCSP User's Manual Sec 4.2 page 96: only bit 5 (CPU manual)
-		// is writable, and writing 0B is invalid (cannot clear via
-		// direct write; use SCIRE).
+		// SH-2 sets CPU doorbell (bit 5) / SCIPD bits to signal the 68K.
 		s.lockIntr()
-		s.regs[offset/2] |= val & scspIntCPU
+		s.regs[offset/2] |= val & 0x07FF
 		s.checkSoundInterrupt()
 		s.unlockIntr()
 		return
 	case scspRegMCIPD:
 		s.lockIntr()
-		s.regs[offset/2] |= val & scspIntCPU
+		s.regs[offset/2] |= val & 0x07FF
 		s.checkMainInterrupt()
 		s.unlockIntr()
 		return

@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
@@ -56,14 +56,14 @@ func (v *VDP1) startPolygon(cmd *vdp1Command, budget int32) (consumed int32, don
 
 	lx := int(v.localX)
 	ly := int(v.localY)
-	p.ax = int(cmd.xa) + lx
-	p.ay = int(cmd.ya) + ly
-	p.bx = int(cmd.xb) + lx
-	p.by = int(cmd.yb) + ly
-	p.cx = int(cmd.xc) + lx
-	p.cy = int(cmd.yc) + ly
-	p.dx = int(cmd.xd) + lx
-	p.dy = int(cmd.yd) + ly
+	p.ax = int(int16(cmd.xa)) + lx
+	p.ay = int(int16(cmd.ya)) + ly
+	p.bx = int(int16(cmd.xb)) + lx
+	p.by = int(int16(cmd.yb)) + ly
+	p.cx = int(int16(cmd.xc)) + lx
+	p.cy = int(int16(cmd.yc)) + ly
+	p.dx = int(int16(cmd.xd)) + lx
+	p.dy = int(int16(cmd.yd)) + ly
 
 	bboxMinX := intMin(intMin(p.ax, p.bx), intMin(p.cx, p.dx))
 	bboxMinY := intMin(intMin(p.ay, p.by), intMin(p.cy, p.dy))

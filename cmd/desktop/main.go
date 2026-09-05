@@ -1,7 +1,7 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Command saturn-ui runs the erings Saturn core under the eblitui
+// Command saturn-ui runs the cassini Saturn core under the eblitui
 // desktop UI. With no flags it opens the full UI. Passing both -bios
 // and -disc runs the given disc directly with the given BIOS.
 package main
@@ -12,8 +12,8 @@ import (
 	"log"
 	"os"
 
+	"github.com/jkind73/cassini/adapter"
 	"github.com/user-none/eblitui/desktop"
-	"github.com/user-none/erings/adapter"
 )
 
 //go:embed icon.webp
@@ -29,7 +29,7 @@ func main() {
 	desktop.SetAppIcon(icon)
 
 	if *discPath != "" {
-		options := map[string]string{"fast_boot": "true"}
+		options := map[string]string{"fast_boot": "false"}
 		var biosMap map[string][]byte
 		if *biosPath != "" {
 			biosData, err := os.ReadFile(*biosPath)

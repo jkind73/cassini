@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package ui
@@ -11,7 +11,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 
-	"github.com/user-none/erings/utils/debugger/ui/logbuf"
+	"github.com/jkind73/cassini/utils/debugger/ui/logbuf"
 )
 
 // LogView renders a logbuf.Buffer with drag selection. It draws its

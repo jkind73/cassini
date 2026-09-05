@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package sh2
@@ -22,7 +22,7 @@ func TestOnChipINTCReadWrite(t *testing.T) {
 
 // TestOnChipSBYCRStub verifies SBYCR register storage. Per manual
 // Sec 14.2.1, SBYCR is a byte register at 0xFFFFFE91 with bit 5
-// reserved and bits 7,6,4-0 writable. erings stores it but does
+// reserved and bits 7,6,4-0 writable. cassini stores it but does
 // not model STBY/SLEEP power-down behavior.
 func TestOnChipSBYCRStub(t *testing.T) {
 	bus := newTestBus(0x1000)
@@ -1099,7 +1099,7 @@ func TestOnChipByteReadDMACBigEndian(t *testing.T) {
 // TestOnChipByteWriteDIVU32OnlyDivergence locks divergence D8 from
 // README. Manual Table 10.1 Note 1 states DVSR / DVDNT / DVDNTH /
 // DVDNTL are 32-bit access only. A byte write is undefined per spec;
-// erings zero-extends the byte and writes the full 32-bit register,
+// cassini zero-extends the byte and writes the full 32-bit register,
 // clobbering the other three bytes. Saturn software does not perform
 // byte writes to these registers.
 func TestOnChipByteWriteDIVU32OnlyDivergence(t *testing.T) {
@@ -1116,7 +1116,7 @@ func TestOnChipByteWriteDIVU32OnlyDivergence(t *testing.T) {
 
 // TestOnChipByteWriteDMAC32OnlyDivergence locks divergence D8. Manual
 // Table 9.2 Note 3 states DMAC SAR / DAR / TCR / CHCR / VCRDMA / DMAOR
-// are 32-bit access only. Byte writes are undefined per spec; erings
+// are 32-bit access only. Byte writes are undefined per spec; cassini
 // zero-extends and clobbers the whole register.
 func TestOnChipByteWriteDMAC32OnlyDivergence(t *testing.T) {
 	bus := newTestBus(0x1000)

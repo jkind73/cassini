@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package sh2
@@ -48,6 +48,7 @@ func fillCPUState(c *CPU) {
 	c.multiplierBusyUntil = 111222333
 	c.busStall = 17
 	c.nextPeripheralEvent = 444555666
+	c.lastMACycle = 789012345
 	c.fetchLineAddr = 0x06000110
 	c.fetchLineWay = 2
 	c.fetchLineOff = 0x30
@@ -98,6 +99,7 @@ func fillCPUState(c *CPU) {
 	c.divu.dvdntl = 0xB0000004
 	c.divu.dvcr = 0x00000003
 	c.divu.vcrdiv = 0x0000006F
+	c.divu.busyUntil = 12345678
 
 	for i := range c.dmac.ch {
 		c.dmac.ch[i].sar = 0xC0000001 + uint32(i)
@@ -268,6 +270,7 @@ var stateCoverage = map[reflect.Type]map[string]string{
 		"fetchLineWay":        "captured",
 		"fetchLineOff":        "captured",
 		"busStall":            "captured",
+		"lastMACycle":         "captured",
 		"sbycr":               "captured",
 		"bcr1":                "captured",
 		"isMaster":            "skip-construction",
@@ -291,6 +294,7 @@ var stateCoverage = map[reflect.Type]map[string]string{
 	reflect.TypeOf(DIVU{}): {
 		"dvsr": "captured", "dvdnt": "captured", "dvdnth": "captured",
 		"dvdntl": "captured", "dvcr": "captured", "vcrdiv": "captured",
+		"busyUntil": "captured",
 	},
 	reflect.TypeOf(DMAC{}): {
 		"ch": "captured", "dmaor": "captured", "drcr": "captured",

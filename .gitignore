@@ -38,3 +38,8 @@ build
 *.swp
 *.swn
 *.swo
+
+# Local artifacts & disc images
+*.chd
+debug*.txt
+

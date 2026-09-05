@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package debugserver
@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/user-none/erings/internal/debugserver/responses"
+	"github.com/jkind73/cassini/internal/debugserver/responses"
 )
 
 // maxBreaks bounds the per-frame read cost of the break list.

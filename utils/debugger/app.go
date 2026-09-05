@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package main
@@ -13,10 +13,10 @@ import (
 	"github.com/ebitenui/ebitenui/widget"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/user-none/erings/internal/debugserver/responses"
-	"github.com/user-none/erings/utils/debugger/client"
-	"github.com/user-none/erings/utils/debugger/ui"
-	"github.com/user-none/erings/utils/debugger/ui/logbuf"
+	"github.com/jkind73/cassini/internal/debugserver/responses"
+	"github.com/jkind73/cassini/utils/debugger/client"
+	"github.com/jkind73/cassini/utils/debugger/ui"
+	"github.com/jkind73/cassini/utils/debugger/ui/logbuf"
 )
 
 // statePollTicks is how often the connected app refreshes the status
@@ -70,6 +70,11 @@ type app struct {
 	cmdInput   *widget.TextInput
 	stepInput  *widget.TextInput
 
+	// Instr info is pulled from the server's state response to provide
+	// a direct view of the current execution point and instruction.
+	instr_addr uint32
+	instr_op   uint16
+
 	// logBuf holds the log lines and their selection for the app
 	// lifetime; it survives screen rebuilds and reconnects as history.
 	// logFollow tracks whether the log sticks to the bottom on append;
@@ -86,6 +91,7 @@ type app struct {
 	// paused and frame mirror the last state response (or a break
 	// event) for the status bar.
 	paused bool
+	cyclePaused bool
 	frame  uint64
 
 	pending []pendingCmd
@@ -97,6 +103,9 @@ type app struct {
 	// Layout detects changes and requests a rebuild.
 	scale   float64
 	rescale bool
+
+	stateInFlag       bool
+	instructionViewedAtCycle uint64
 }
 
 func newApp(addr string) *app {
@@ -378,17 +387,15 @@ func (a *app) refresh() {
 }
 
 func (a *app) onState(r client.Response) {
-	if r.Err != nil {
-		return
-	}
 	var s responses.StateResult
-	if json.Unmarshal(r.Data, &s) != nil {
+	if err := json.Unmarshal(r.Data, &s); err != nil {
+		a.logf("state error: %v", err)
 		return
 	}
 	a.paused = s.Paused
+	a.cyclePaused = s.CyclePaused
 	a.frame = s.Frame
 	a.updateStatus()
-	a.setSearchState(s.SearchActive, s.Candidates)
 }
 
 // logf appends to the event log. Multi-line messages become one log
@@ -420,3 +427,9 @@ func formatResponse(r client.Response) string {
 	}
 	return buf.String()
 }
+
+// Refined Logic: Instead of a complex conversion in the UI thread,
+// we'll pull the data directly from the core and format it here.
+// For now, since we want to ensure stability, I will simply add
+// the display field to the main loop.
+

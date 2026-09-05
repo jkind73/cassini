@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package sh2
@@ -157,6 +157,10 @@ type CPU struct {
 	fetchLineWay  int
 	fetchLineOff  uint32
 
+	// lastMACycle tracks the CPU cycle of the most recent memory access
+	// (MA stage) to detect IF/MA internal bus contention (SH7604 Sec 7.2.1).
+	lastMACycle uint64
+
 	// busStall is bus-access wait-state debt (in CPU cycles) accumulated
 	// by the current instruction's external accesses: cache misses (line
 	// fills), cache-through and uncached accesses, and write-through
@@ -267,6 +271,11 @@ func (c *CPU) Reset() {
 	c.wdt.lastSync = c.cycles
 	c.recomputeWDTEvent()
 	c.LoadResetVectors()
+}
+
+// Registers returns a copy of the current CPU register state.
+func (c *CPU) Registers() Registers {
+	return c.reg
 }
 
 // Clock advances the CPU by exactly one cycle and returns per-cycle state.
@@ -559,6 +568,9 @@ func (c *CPU) stepTRAPA() BusActivity {
 func (c *CPU) stepException() BusActivity {
 	switch c.pendingStep {
 	case 1: // Cycle 2: MA write SR
+		if c.reg.R[15]&3 != 0 {
+			c.reg.R[15] &^= 3
+		}
 		c.reg.R[15] -= 4
 		c.Write32(c.reg.R[15], c.pendingVal)
 		return BusWrite
@@ -669,11 +681,6 @@ func (c *CPU) Halted() bool {
 // by the SCU (level<<16 | vector). Counterpart to SetIRL/ClearIRL.
 func (c *CPU) IRL() uint32 {
 	return c.irl.Load()
-}
-
-// Registers returns a snapshot of the current register state.
-func (c *CPU) Registers() Registers {
-	return c.reg
 }
 
 // SetPC sets the program counter.
@@ -811,9 +818,16 @@ func (c *CPU) fetchInstr(addr uint32) uint16 {
 		if c.ccr&ccrCE != 0 {
 			return c.cacheFetch16(addr)
 		}
+	case 1: // Partition 1: Uncached Direct Mirror (Section 8.3 Table 8.2)
+		addr &^= 0x20000000
 	case 6: // data array: code running from cache RAM
 		off := addr & 0xFFE
 		return uint16(c.cacheData[off])<<8 | uint16(c.cacheData[off+1])
+	}
+	// IF/MA Bus Contention (SH7604 Manual Sec 7.2.1): When a data memory access (MA)
+	// coincides with an external instruction fetch (IF) during single-cycle instruction execution, insert 1 wait state.
+	if c.pendingOp == popNone && c.lastMACycle > 0 && c.lastMACycle == c.cycles {
+		c.busStall++
 	}
 	v, stall := c.bus.SH2Read16(addr, c.frameCyc, !c.isMaster)
 	c.busStall += stall
@@ -836,13 +850,18 @@ func (c *CPU) Read16(addr uint32) uint16 {
 		v, _ := c.readOnChip(addr)
 		return uint16(v)
 	}
+	if c.pendingOp == popNone {
+		c.lastMACycle = c.cycles
+	}
 	switch addr >> 29 {
 	case 0: // cache area
 		if c.ccr&ccrCE != 0 {
 			return c.cacheRead16(addr)
 		}
-	case 1, 7: // cache-through; I/O area
-	case 2, 3, 5: // purge/address-array (no data on reads)/reserved
+	case 1: // Partition 1: Uncached Direct Mirror (Section 8.3 Table 8.2)
+		addr &^= 0x20000000
+	case 7: // I/O area
+	case 2, 3, 5: // purge/address-array (no data on 16-bit reads)/reserved
 		return 0
 	case 4, 6: // data array (Section 8.4.8); partition 4 (0x80000000) is
 		// Reserved (Table 7.3) but games access it out-of-bounds, where
@@ -866,12 +885,17 @@ func (c *CPU) Read32(addr uint32) uint32 {
 		v, _ := c.readOnChip(addr)
 		return v
 	}
+	if c.pendingOp == popNone {
+		c.lastMACycle = c.cycles
+	}
 	switch addr >> 29 {
 	case 0: // cache area
 		if c.ccr&ccrCE != 0 {
 			return c.cacheRead32(addr)
 		}
-	case 1, 7: // cache-through; I/O area
+	case 1: // Partition 1: Uncached Direct Mirror (Section 8.3 Table 8.2)
+		addr &^= 0x20000000
+	case 7: // I/O area
 	case 2, 5: // purge area reads / reserved
 		return 0
 	case 3: // address array read (Section 8.4.9, longword only)
@@ -902,12 +926,17 @@ func (c *CPU) Write16(addr uint32, val uint16) {
 		c.writeOnChip(addr, uint32(val))
 		return
 	}
+	if c.pendingOp == popNone {
+		c.lastMACycle = c.cycles
+	}
 	switch addr >> 29 {
 	case 0: // cache area: update the data array on hit, always write memory
 		if c.ccr&ccrCE != 0 {
 			c.cacheWriteHit16(addr, val)
 		}
-	case 1, 7: // cache-through; I/O area
+	case 1: // Partition 1: Uncached Direct Mirror (Section 8.3 Table 8.2)
+		addr &^= 0x20000000
+	case 7: // I/O area
 	case 2: // associative purge (Section 8.4.7)
 		c.associativePurge(addr)
 		return
@@ -934,12 +963,17 @@ func (c *CPU) Write32(addr uint32, val uint32) {
 		c.writeOnChip(addr, val)
 		return
 	}
+	if c.pendingOp == popNone {
+		c.lastMACycle = c.cycles
+	}
 	switch addr >> 29 {
 	case 0: // cache area: update the data array on hit, always write memory
 		if c.ccr&ccrCE != 0 {
 			c.cacheWriteHit32(addr, val)
 		}
-	case 1, 7: // cache-through; I/O area
+	case 1: // Partition 1: Uncached Direct Mirror (Section 8.3 Table 8.2)
+		addr &^= 0x20000000
+	case 7: // I/O area
 	case 2: // associative purge (Section 8.4.7)
 		c.associativePurge(addr)
 		return
@@ -959,7 +993,7 @@ func (c *CPU) Write32(addr uint32, val uint32) {
 	c.busStall += c.bus.SH2Write32(addr, val, c.frameCyc, !c.isMaster)
 }
 
-// addressError triggers a CPU address error exception.
+// addressError triggers a CPU address error exception (SH7604 Sec 4.3.2 & 4.8.3).
 func (c *CPU) addressError() {
 	c.addrError = true
 	c.serviceException(vecCPUAddr)
@@ -980,12 +1014,17 @@ func (c *CPU) Read8(addr uint32) uint8 {
 		v, _ := c.readOnChip(addr)
 		return onChipByte(addr, v)
 	}
+	if c.pendingOp == popNone {
+		c.lastMACycle = c.cycles
+	}
 	switch addr >> 29 {
 	case 0: // cache area
 		if c.ccr&ccrCE != 0 {
 			return c.cacheRead8(addr)
 		}
-	case 1, 7: // cache-through; I/O area
+	case 1: // Partition 1: Uncached Direct Mirror (Section 8.3 Table 8.2)
+		addr &^= 0x20000000
+	case 7: // I/O area
 	case 2, 3, 5: // purge/address-array (no data on reads)/reserved
 		return 0
 	// Partition 4 (0x80000000-0x9FFFFFFF) is Reserved in the address map
@@ -1039,12 +1078,17 @@ func (c *CPU) Write8(addr uint32, val uint8) {
 		c.writeOnChip8(addr, val)
 		return
 	}
+	if c.pendingOp == popNone {
+		c.lastMACycle = c.cycles
+	}
 	switch addr >> 29 {
 	case 0: // cache area: update the data array on hit, always write memory
 		if c.ccr&ccrCE != 0 {
 			c.cacheWriteHit8(addr, val)
 		}
-	case 1, 7: // cache-through; I/O area
+	case 1: // Partition 1: Uncached Direct Mirror (Section 8.3 Table 8.2)
+		addr &^= 0x20000000
+	case 7: // I/O area
 	case 2: // associative purge (Section 8.4.7)
 		c.associativePurge(addr)
 		return
@@ -1141,13 +1185,8 @@ func (c *CPU) readOnChip(addr uint32) (uint32, bool) {
 		// INTC registers (ICR, IPRA, VCRWDT)
 		return uint32(c.intc.Read(addr & 0xFFFFFFFE)), true
 	case addr >= 0xFFFFFF00 && addr <= 0xFFFFFF1F:
-		// DIVU registers (32-bit access). Addresses 0xFFFFFF18 and
-		// 0xFFFFFF1C are undocumented non-destructive aliases of
-		// DVDNTH and DVDNTL that return the last division remainder
-		// and quotient. The SH-7604 manual lists 0xFFFFFF18..0xFFFFFF3F
-		// as reserved, but the real hardware mirrors DVDNTH/DVDNTL
-		// there and NiGHTS relies on reading the quotient from
-		// 0xFFFFFF1C in its vertex projection code.
+		// DIVU registers (32-bit access).
+		c.busStall += c.divu.BusyStall(c.cycles)
 		return c.divu.Read(addr & 0xFFFFFFFC), true
 	case addr >= 0xFFFFFF80 && addr <= 0xFFFFFFB0:
 		// DMAC registers (32-bit access)
@@ -1245,8 +1284,9 @@ func (c *CPU) writeOnChip(addr uint32, val uint32) bool {
 	case addr >= 0xFFFFFF00 && addr <= 0xFFFFFF1F:
 		// DIVU registers (32-bit access), including the undocumented
 		// non-destructive aliases DVDNTUH/DVDNTUL at 0xFFFFFF18 and
-		// 0xFFFFFF1C.
-		if c.divu.Write(addr&0xFFFFFFFC, val) {
+		// 0xFFFFFF1C. Charge 39-cycle pipeline stall if accessing mid-division.
+		c.busStall += c.divu.BusyStall(c.cycles)
+		if c.divu.Write(addr&0xFFFFFFFC, val, c.cycles) {
 			c.routeDIVUInterrupt()
 		}
 		// DVCR (0xFFFFFF08) carries OVFIE; enabling it while OVF is set

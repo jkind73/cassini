@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package main
@@ -12,7 +12,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/user-none/erings/core/sh2"
+	"github.com/jkind73/cassini/core/sh2"
 )
 
 func parseHexAddr(s string) (uint32, error) {

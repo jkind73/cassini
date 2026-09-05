@@ -1,7 +1,7 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package adapter exposes the erings Saturn core through the eblitui
+// Package adapter exposes the cassini Saturn core through the eblitui
 // coreif interfaces so it can run under the eblitui desktop UI.
 package adapter
 
@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jkind73/cassini"
+	"github.com/jkind73/cassini/core"
 	"github.com/user-none/eblitui/coreif"
-	"github.com/user-none/erings"
-	"github.com/user-none/erings/core"
 )
 
 // Saturn input bit layout, matching core.Emulator.SetInput: d-pad on
@@ -52,7 +52,7 @@ type Factory struct{}
 // SystemInfo returns Saturn system metadata for the UI.
 func (f *Factory) SystemInfo() coreif.SystemInfo {
 	return coreif.SystemInfo{
-		Name:             erings.Name,
+		Name:             cassini.Name,
 		ConsoleName:      "Sega Saturn",
 		ScreenWidth:      704,
 		MaxScreenHeight:  512,
@@ -63,9 +63,9 @@ func (f *Factory) SystemInfo() coreif.SystemInfo {
 		Disc:             true,
 		ConsoleID:        39,
 		BigEndianMemory:  true,
-		DataDirName:      "erings",
-		CoreName:         erings.Name,
-		CoreVersion:      erings.Version,
+		DataDirName:      "cassini",
+		CoreName:         cassini.Name,
+		CoreVersion:      cassini.Version,
 		SerializeSize:    core.SerializeSize(),
 		MetadataVariants: []coreif.MetadataVariant{
 			{
@@ -81,6 +81,15 @@ func (f *Factory) SystemInfo() coreif.SystemInfo {
 				Description: "Skip BIOS animation screens",
 				Type:        coreif.CoreOptionBool,
 				Default:     "true",
+				Category:    coreif.CoreOptionCategoryCore,
+			},
+			{
+				Key:         "region_lock",
+				Label:       "System BIOS & Region Mode",
+				Description: "Select System BIOS firmware & console region (Auto-Select matching regional BIOS, explicit Japan/USA/Europe BIOS, or HLE BIOS)",
+				Type:        coreif.CoreOptionSelect,
+				Default:     "Auto-Select",
+				Values:      []string{"Auto-Select", "Japan (NTSC)", "USA (NTSC)", "Europe (PAL)", "HLE"},
 				Category:    coreif.CoreOptionCategoryCore,
 			},
 			{
@@ -172,19 +181,38 @@ func (f *Factory) SystemInfo() coreif.SystemInfo {
 		},
 		BIOSOptions: []coreif.BIOSOption{
 			{
-				Key:      "main_bios",
-				Label:    "System BIOS",
+				Key:      "japan_bios",
+				Label:    "Japan BIOS (sega_101.bin)",
 				Required: false,
 				Variants: []coreif.BIOSVariant{
 					{
-						Label:    "USA",
+						Label:    "Japan (sega_101.bin)",
+						SHA256:   "dcfef4b99605f872b6c3b6d05c045385cdea3d1b702906a0ed930df7bcb7deac",
+						Filename: "sega_101.bin",
+					},
+				},
+			},
+			{
+				Key:      "usa_bios",
+				Label:    "USA BIOS (mpr-17933.bin)",
+				Required: false,
+				Variants: []coreif.BIOSVariant{
+					{
+						Label:    "USA (mpr-17933.bin)",
 						SHA256:   "96e106f740ab448cf89f0dd49dfbac7fe5391cb6bd6e14ad5e3061c13330266f",
 						Filename: "mpr-17933.bin",
 					},
+				},
+			},
+			{
+				Key:      "europe_bios",
+				Label:    "Europe BIOS (mpr-17933.bin)",
+				Required: false,
+				Variants: []coreif.BIOSVariant{
 					{
-						Label:    "Japan",
-						SHA256:   "dcfef4b99605f872b6c3b6d05c045385cdea3d1b702906a0ed930df7bcb7deac",
-						Filename: "sega_101.bin",
+						Label:    "Europe (mpr-17933.bin)",
+						SHA256:   "96e106f740ab448cf89f0dd49dfbac7fe5391cb6bd6e14ad5e3061c13330266f",
+						Filename: "mpr-17933.bin",
 					},
 				},
 			},
@@ -282,9 +310,12 @@ func (e *emulator) SetPointer(player int, x, y int, trigger bool) {
 	e.emu.SetPointer(player, x, y, trigger)
 }
 func (e *emulator) SetOption(key string, value string) { e.emu.SetOption(key, value) }
-func (e *emulator) SetRom(data []byte)                  {} // Saturn is disc-only
-func (e *emulator) Start()                              { e.emu.Start() }
-func (e *emulator) Close()                              { e.emu.Close() }
+func (e *emulator) SetRom(data []byte)                 {} // Saturn is disc-only
+func (e *emulator) Start() {
+	e.emu.Start()
+	//e.emu.InstallPCWatchdog()
+}
+func (e *emulator) Close() { e.emu.Close() }
 
 // ReadMemory implements coreif.MemoryInspector for RetroAchievements, mapping
 // the rcheevos flat Saturn address space onto Work RAM.

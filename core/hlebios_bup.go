@@ -1,10 +1,10 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
 
 import (
-	"github.com/user-none/erings/core/sh2"
+	"github.com/jkind73/cassini/core/sh2"
 )
 
 // HLE implementation of the Backup Library (BUP_*) slot services
@@ -64,7 +64,7 @@ import (
 //
 // Scope: internal console memory only (R4 == 0). External A-bus
 // cart (R4 == 2) reports BUP_NON. Serial (R4 == 1) also reports
-// BUP_NON since erings doesn't model that device.
+// BUP_NON since cassini doesn't model that device.
 
 // BUP return codes per sega_bup.h (`BUP_NON` through `BUP_BROKEN`).
 // The driver returns these positive values directly and the SDK
@@ -579,7 +579,7 @@ func bupIsInternal(r4 uint32) bool {
 //	     present (port-2 marker zero - set by
 //	     writePerDriverTable), the body returns R0 = 1 (BUP_NON).
 //	R5 = num (partition number). Not consumed by the HLE since
-//	     only the cart path uses it and erings does not model a
+//	     only the cart path uses it and cassini does not model a
 //	     cart.
 func hlePerDriverSlot1Service(cpu *sh2.CPU) {
 	r := cpu.Registers()

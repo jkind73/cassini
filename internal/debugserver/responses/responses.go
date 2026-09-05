@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package responses holds the shared data types of the debug server's
@@ -13,6 +13,7 @@ package responses
 // width setting, which applies whether or not a search is active.
 type StateResult struct {
 	Paused       bool   `json:"paused"`
+	CyclePaused  bool   `json:"cycle_paused"`
 	Frame        uint64 `json:"frame"`
 	Width        int    `json:"width"`
 	SearchActive bool   `json:"search_active"`

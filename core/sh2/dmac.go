@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package sh2
@@ -178,8 +178,8 @@ func (d *DMAC) writeDMAOR(val uint32) int {
 }
 
 // runReady selects and executes the highest priority ready channel.
-// Returns -1; completion is deferred via the stall countdown.
-// DMAOR bit 3 (PR): 0 = fixed priority (ch0 > ch1), 1 = round-robin.
+// Returns the channel index that completed immediately, or -1 if deferred via stall countdown.
+// DMAOR bit 3 (PR): 0 = fixed priority (ch0 > ch1), 1 = round-robin priority (Sec 11.3.4).
 func (d *DMAC) runReady() int {
 	first := 0
 	if d.dmaor&0x08 != 0 {

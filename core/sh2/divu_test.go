@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package sh2
@@ -22,8 +22,8 @@ func TestDIVU32by32(t *testing.T) {
 	divu.Reset()
 
 	// 100 / 7 = 14 remainder 2
-	divu.Write(0xFFFFFF00, 7)   // DVSR = 7
-	divu.Write(0xFFFFFF04, 100) // DVDNT = 100, triggers division
+	divu.Write(0xFFFFFF00, 7, 0)   // DVSR = 7
+	divu.Write(0xFFFFFF04, 100, 0) // DVDNT = 100, triggers division
 
 	q := divu.Read(0xFFFFFF04) // DVDNT = quotient
 	r := divu.Read(0xFFFFFF10) // DVDNTH = remainder
@@ -41,8 +41,8 @@ func TestDIVU32by32Negative(t *testing.T) {
 	divu.Reset()
 
 	// -100 / 7 = -14 remainder -2
-	divu.Write(0xFFFFFF00, 7)
-	divu.Write(0xFFFFFF04, 0xFFFFFF9C)
+	divu.Write(0xFFFFFF00, 7, 0)
+	divu.Write(0xFFFFFF04, 0xFFFFFF9C, 0)
 
 	q := int32(divu.Read(0xFFFFFF04))
 	r := int32(divu.Read(0xFFFFFF10))
@@ -60,8 +60,8 @@ func TestDIVU32by32BothNegative(t *testing.T) {
 	divu.Reset()
 
 	// -100 / -7 = 14 remainder -2
-	divu.Write(0xFFFFFF00, 0xFFFFFFF9)
-	divu.Write(0xFFFFFF04, 0xFFFFFF9C)
+	divu.Write(0xFFFFFF00, 0xFFFFFFF9, 0)
+	divu.Write(0xFFFFFF04, 0xFFFFFF9C, 0)
 
 	q := int32(divu.Read(0xFFFFFF04))
 	r := int32(divu.Read(0xFFFFFF10))
@@ -79,9 +79,9 @@ func TestDIVU64by32(t *testing.T) {
 	divu.Reset()
 
 	// 0x0000000100000000 / 3 = 0x55555555 remainder 1
-	divu.Write(0xFFFFFF00, 3)          // DVSR = 3
-	divu.Write(0xFFFFFF10, 0x00000001) // DVDNTH = high
-	divu.Write(0xFFFFFF14, 0x00000000) // DVDNTL = low, triggers division
+	divu.Write(0xFFFFFF00, 3, 0)          // DVSR = 3
+	divu.Write(0xFFFFFF10, 0x00000001, 0) // DVDNTH = high
+	divu.Write(0xFFFFFF14, 0x00000000, 0) // DVDNTL = low, triggers division
 
 	q := divu.Read(0xFFFFFF14) // DVDNTL = quotient
 	r := divu.Read(0xFFFFFF10) // DVDNTH = remainder
@@ -99,8 +99,8 @@ func TestDIVUDivideByZero(t *testing.T) {
 	divu.Reset()
 
 	// Divide by zero -> overflow
-	divu.Write(0xFFFFFF00, 0) // DVSR = 0
-	divu.Write(0xFFFFFF04, 100)
+	divu.Write(0xFFFFFF00, 0, 0) // DVSR = 0
+	divu.Write(0xFFFFFF04, 100, 0)
 
 	if divu.dvcr&0x01 == 0 {
 		t.Error("OVF not set after divide by zero")
@@ -112,8 +112,8 @@ func TestDIVUOverflow32(t *testing.T) {
 	divu.Reset()
 
 	// 0x80000000 / -1 overflows int32 (result would be +2147483648)
-	divu.Write(0xFFFFFF00, 0xFFFFFFFF)
-	divu.Write(0xFFFFFF04, 0x80000000)
+	divu.Write(0xFFFFFF00, 0xFFFFFFFF, 0)
+	divu.Write(0xFFFFFF04, 0x80000000, 0)
 
 	if divu.dvcr&0x01 == 0 {
 		t.Error("OVF not set for int32 overflow")
@@ -131,9 +131,9 @@ func TestDIVUOverflowPositiveClamp(t *testing.T) {
 	divu.Reset()
 
 	// 64-bit dividend that produces quotient > MaxInt32
-	divu.Write(0xFFFFFF00, 1)          // DVSR = 1
-	divu.Write(0xFFFFFF10, 0x00000001) // DVDNTH = 1
-	divu.Write(0xFFFFFF14, 0x00000000) // DVDNTL = 0 -> dividend = 0x100000000
+	divu.Write(0xFFFFFF00, 1, 0)          // DVSR = 1
+	divu.Write(0xFFFFFF10, 0x00000001, 0) // DVDNTH = 1
+	divu.Write(0xFFFFFF14, 0x00000000, 0) // DVDNTL = 0 -> dividend = 0x100000000
 
 	if divu.dvcr&0x01 == 0 {
 		t.Error("OVF not set for positive overflow")
@@ -150,14 +150,14 @@ func TestDIVUOverflowInterrupt(t *testing.T) {
 	divu.Reset()
 
 	// Enable overflow interrupt
-	divu.Write(0xFFFFFF08, 0x02) // OVFIE=1
+	divu.Write(0xFFFFFF08, 0x02, 0) // OVFIE=1
 
 	// Set vector
-	divu.Write(0xFFFFFF0C, 0x50) // vector 0x50
+	divu.Write(0xFFFFFF0C, 0x50, 0) // vector 0x50
 
 	// Divide by zero
-	divu.Write(0xFFFFFF00, 0)
-	irq := divu.Write(0xFFFFFF04, 100)
+	divu.Write(0xFFFFFF00, 0, 0)
+	irq := divu.Write(0xFFFFFF04, 100, 0)
 
 	if !irq {
 		t.Error("expected interrupt signal on overflow with OVFIE=1")
@@ -171,9 +171,9 @@ func TestDIVUNoOverflowNoInterrupt(t *testing.T) {
 	var divu DIVU
 	divu.Reset()
 
-	divu.Write(0xFFFFFF08, 0x02) // OVFIE=1
-	divu.Write(0xFFFFFF00, 7)
-	irq := divu.Write(0xFFFFFF04, 100)
+	divu.Write(0xFFFFFF08, 0x02, 0) // OVFIE=1
+	divu.Write(0xFFFFFF00, 7, 0)
+	irq := divu.Write(0xFFFFFF04, 100, 0)
 
 	if irq {
 		t.Error("unexpected interrupt signal on normal division")
@@ -188,13 +188,13 @@ func TestDIVURegisterReadWrite(t *testing.T) {
 	divu.Reset()
 
 	// DVCR only bits 1-0
-	divu.Write(0xFFFFFF08, 0xFFFFFFFF)
+	divu.Write(0xFFFFFF08, 0xFFFFFFFF, 0)
 	if divu.Read(0xFFFFFF08) != 0x03 {
 		t.Errorf("DVCR = 0x%08X, want 0x03", divu.Read(0xFFFFFF08))
 	}
 
 	// VCRDIV only bits 6-0
-	divu.Write(0xFFFFFF0C, 0xFFFFFFFF)
+	divu.Write(0xFFFFFF0C, 0xFFFFFFFF, 0)
 	if divu.Read(0xFFFFFF0C) != 0x7F {
 		t.Errorf("VCRDIV = 0x%08X, want 0x7F", divu.Read(0xFFFFFF0C))
 	}
@@ -205,8 +205,8 @@ func TestDIVUDVDNTMirrorsDVDNTL(t *testing.T) {
 	divu.Reset()
 
 	// After 32/32 division, DVDNT and DVDNTL should both hold the quotient
-	divu.Write(0xFFFFFF00, 5)
-	divu.Write(0xFFFFFF04, 25)
+	divu.Write(0xFFFFFF00, 5, 0)
+	divu.Write(0xFFFFFF04, 25, 0)
 
 	dvdnt := divu.Read(0xFFFFFF04)
 	dvdntl := divu.Read(0xFFFFFF14)
@@ -224,8 +224,8 @@ func TestDIVUDivideByZeroClampPositive(t *testing.T) {
 	divu.Reset()
 
 	// Positive dividend / 0 -> positive overflow -> clamp to 0x7FFFFFFF
-	divu.Write(0xFFFFFF00, 0)
-	divu.Write(0xFFFFFF04, 100)
+	divu.Write(0xFFFFFF00, 0, 0)
+	divu.Write(0xFFFFFF04, 100, 0)
 
 	q := divu.Read(0xFFFFFF04)
 	if q != 0x7FFFFFFF {
@@ -238,8 +238,8 @@ func TestDIVUDivideByZeroClampNegative(t *testing.T) {
 	divu.Reset()
 
 	// Negative dividend / 0 -> negative overflow -> clamp to 0x80000000
-	divu.Write(0xFFFFFF00, 0)
-	divu.Write(0xFFFFFF04, 0xFFFFFF9C)
+	divu.Write(0xFFFFFF00, 0, 0)
+	divu.Write(0xFFFFFF04, 0xFFFFFF9C, 0)
 
 	q := divu.Read(0xFFFFFF04)
 	if q != 0x80000000 {
@@ -256,8 +256,8 @@ func TestDIVU32By32WriteDVDNTMirrorsDVDNTL(t *testing.T) {
 	// holds the remainder (both 0 / dividend for our case).
 	var divu DIVU
 	divu.Reset()
-	divu.Write(0xFFFFFF00, 1)
-	divu.Write(0xFFFFFF04, 0x12345678)
+	divu.Write(0xFFFFFF00, 1, 0)
+	divu.Write(0xFFFFFF04, 0x12345678, 0)
 
 	if divu.Read(0xFFFFFF04) != 0x12345678 {
 		t.Errorf("DVDNT quotient = 0x%08X, want 0x12345678", divu.Read(0xFFFFFF04))
@@ -271,8 +271,8 @@ func TestDIVU32By32WriteDVDNTMirrorsDVDNTL(t *testing.T) {
 
 	// Negative: DVDNTH sign-extended to 0xFFFFFFFF, then divide by 1.
 	divu.Reset()
-	divu.Write(0xFFFFFF00, 1)
-	divu.Write(0xFFFFFF04, 0x80000001) // negative dividend
+	divu.Write(0xFFFFFF00, 1, 0)
+	divu.Write(0xFFFFFF04, 0x80000001, 0) // negative dividend
 	// 0x80000001 (int32 = -2147483647) / 1 = -2147483647 = 0x80000001
 	if divu.Read(0xFFFFFF04) != 0x80000001 {
 		t.Errorf("negative DVDNT quotient = 0x%08X, want 0x80000001", divu.Read(0xFFFFFF04))
@@ -287,9 +287,9 @@ func TestDIVU64By32NegativeDividend(t *testing.T) {
 
 	// Dividend = -10 expressed as 64-bit: 0xFFFFFFFF_FFFFFFF6.
 	// -10 / 2 = -5, remainder 0.
-	divu.Write(0xFFFFFF00, 2)
-	divu.Write(0xFFFFFF10, 0xFFFFFFFF)
-	divu.Write(0xFFFFFF14, 0xFFFFFFF6)
+	divu.Write(0xFFFFFF00, 2, 0)
+	divu.Write(0xFFFFFF10, 0xFFFFFFFF, 0)
+	divu.Write(0xFFFFFF14, 0xFFFFFFF6, 0)
 
 	q := int32(divu.Read(0xFFFFFF14))
 	r := int32(divu.Read(0xFFFFFF10))
@@ -307,9 +307,9 @@ func TestDIVU64By32NegativeDivisor(t *testing.T) {
 	divu.Reset()
 
 	// 100 (as 64-bit positive) / -4 = -25, remainder 0.
-	divu.Write(0xFFFFFF00, 0xFFFFFFFC) // -4
-	divu.Write(0xFFFFFF10, 0x00000000)
-	divu.Write(0xFFFFFF14, 0x00000064) // 100
+	divu.Write(0xFFFFFF00, 0xFFFFFFFC, 0) // -4
+	divu.Write(0xFFFFFF10, 0x00000000, 0)
+	divu.Write(0xFFFFFF14, 0x00000064, 0) // 100
 
 	q := int32(divu.Read(0xFFFFFF14))
 	r := int32(divu.Read(0xFFFFFF10))
@@ -327,9 +327,9 @@ func TestDIVU64By32BothNegative(t *testing.T) {
 	divu.Reset()
 
 	// -21 / -4 = 5, remainder -1.
-	divu.Write(0xFFFFFF00, 0xFFFFFFFC)
-	divu.Write(0xFFFFFF10, 0xFFFFFFFF)
-	divu.Write(0xFFFFFF14, 0xFFFFFFEB) // -21
+	divu.Write(0xFFFFFF00, 0xFFFFFFFC, 0)
+	divu.Write(0xFFFFFF10, 0xFFFFFFFF, 0)
+	divu.Write(0xFFFFFF14, 0xFFFFFFEB, 0) // -21
 
 	q := int32(divu.Read(0xFFFFFF14))
 	r := int32(divu.Read(0xFFFFFF10))
@@ -349,9 +349,9 @@ func TestDIVUOverflowClampMinInt32Negative(t *testing.T) {
 
 	// 64-bit dividend = -0x200000000 (well below MinInt32), divisor = 1.
 	// Quotient would be -0x200000000, underflows int32.
-	divu.Write(0xFFFFFF00, 1)
-	divu.Write(0xFFFFFF10, 0xFFFFFFFE) // -2 in upper
-	divu.Write(0xFFFFFF14, 0x00000000)
+	divu.Write(0xFFFFFF00, 1, 0)
+	divu.Write(0xFFFFFF10, 0xFFFFFFFE, 0) // -2 in upper
+	divu.Write(0xFFFFFF14, 0x00000000, 0)
 
 	if divu.dvcr&0x01 == 0 {
 		t.Error("OVF not set for negative overflow")
@@ -368,7 +368,7 @@ func TestDIVUVCRDIVReservedBits(t *testing.T) {
 	var divu DIVU
 	divu.Reset()
 
-	divu.Write(0xFFFFFF0C, 0xFFFFFFFF)
+	divu.Write(0xFFFFFF0C, 0xFFFFFFFF, 0)
 	if divu.Read(0xFFFFFF0C) != 0x7F {
 		t.Errorf("VCRDIV = 0x%08X, want 0x7F (bits 31-7 reserved)", divu.Read(0xFFFFFF0C))
 	}
@@ -380,7 +380,7 @@ func TestDIVUDVCRReservedBits(t *testing.T) {
 	var divu DIVU
 	divu.Reset()
 
-	divu.Write(0xFFFFFF08, 0xFFFFFFFF)
+	divu.Write(0xFFFFFF08, 0xFFFFFFFF, 0)
 	if divu.Read(0xFFFFFF08) != 0x03 {
 		t.Errorf("DVCR = 0x%08X, want 0x03 (bits 31-2 reserved)", divu.Read(0xFFFFFF08))
 	}
@@ -394,15 +394,15 @@ func TestDIVUOVFFlagPersistsAcrossSuccessfulDivide(t *testing.T) {
 	divu.Reset()
 
 	// Trigger overflow via divide by zero.
-	divu.Write(0xFFFFFF00, 0)
-	divu.Write(0xFFFFFF04, 42)
+	divu.Write(0xFFFFFF00, 0, 0)
+	divu.Write(0xFFFFFF04, 42, 0)
 	if divu.dvcr&0x01 == 0 {
 		t.Fatal("setup: OVF not set")
 	}
 
 	// A clean divide follows.
-	divu.Write(0xFFFFFF00, 2)
-	divu.Write(0xFFFFFF04, 10)
+	divu.Write(0xFFFFFF00, 2, 0)
+	divu.Write(0xFFFFFF04, 10, 0)
 	if divu.Read(0xFFFFFF04) != 5 {
 		t.Fatalf("setup: quotient = %d, want 5", divu.Read(0xFFFFFF04))
 	}
@@ -419,14 +419,14 @@ func TestDIVUOVFClearableBySoftware(t *testing.T) {
 	divu.Reset()
 
 	// Latch OVF via divide by zero.
-	divu.Write(0xFFFFFF00, 0)
-	divu.Write(0xFFFFFF04, 42)
+	divu.Write(0xFFFFFF00, 0, 0)
+	divu.Write(0xFFFFFF04, 42, 0)
 	if divu.dvcr&0x01 == 0 {
 		t.Fatal("setup: OVF not set")
 	}
 
 	// Software clear.
-	divu.Write(0xFFFFFF08, 0x00)
+	divu.Write(0xFFFFFF08, 0x00, 0)
 	if divu.dvcr&0x01 != 0 {
 		t.Errorf("OVF not cleared by software: DVCR = 0x%08X", divu.dvcr)
 	}
@@ -439,9 +439,9 @@ func TestDIVU64By32DVDNTMirrorsDVDNTL(t *testing.T) {
 	var divu DIVU
 	divu.Reset()
 
-	divu.Write(0xFFFFFF00, 3)          // DVSR = 3
-	divu.Write(0xFFFFFF10, 0x00000001) // DVDNTH = 1
-	divu.Write(0xFFFFFF14, 0x00000000) // DVDNTL = 0 -> triggers
+	divu.Write(0xFFFFFF00, 3, 0)          // DVSR = 3
+	divu.Write(0xFFFFFF10, 0x00000001, 0) // DVDNTH = 1
+	divu.Write(0xFFFFFF14, 0x00000000, 0) // DVDNTL = 0 -> triggers
 
 	l := divu.Read(0xFFFFFF14)
 	dvdnt := divu.Read(0xFFFFFF04)
@@ -456,7 +456,7 @@ func TestDIVU64By32DVDNTMirrorsDVDNTL(t *testing.T) {
 
 // Simplification lock. HM Sec 10.3.2: "This unit finishes a single
 // operation in 39 cycles (starting from the setting of the value in
-// DVDNT)." erings completes the division instantaneously at the
+// DVDNT)." cassini completes the division instantaneously at the
 // register-write call site; the result is visible on the immediately
 // following Read. README "DIVU Simplifications" documents the
 // 39-cycle timing as unmodeled. This test pins the simplified
@@ -466,8 +466,8 @@ func TestDIVUCompletesImmediatelyOnDVDNTWrite(t *testing.T) {
 	var divu DIVU
 	divu.Reset()
 
-	divu.Write(0xFFFFFF00, 7)
-	divu.Write(0xFFFFFF04, 0x0000_004E) // 78 / 7 = 11 r 1
+	divu.Write(0xFFFFFF00, 7, 0)
+	divu.Write(0xFFFFFF04, 0x0000_004E, 0) // 78 / 7 = 11 r 1
 
 	if q := divu.Read(0xFFFFFF04); q != 11 {
 		t.Errorf("DVDNT read immediately after trigger = %d, want 11", q)
@@ -481,7 +481,7 @@ func TestDIVUCompletesImmediatelyOnDVDNTWrite(t *testing.T) {
 }
 
 // Simplification lock. HM Sec 10.3.3: "the operation will then end
-// with the result after 6 cycles of operation." erings writes the
+// with the result after 6 cycles of operation." cassini writes the
 // overflow clamp synchronously on the triggering register write;
 // there is no 6-cycle window during which the result is not yet
 // observable. README "DIVU Simplifications" documents the timing
@@ -490,8 +490,8 @@ func TestDIVUOverflowCompletesImmediately(t *testing.T) {
 	var divu DIVU
 	divu.Reset()
 
-	divu.Write(0xFFFFFF00, 0) // divide by zero
-	divu.Write(0xFFFFFF04, 42)
+	divu.Write(0xFFFFFF00, 0, 0) // divide by zero
+	divu.Write(0xFFFFFF04, 42, 0)
 
 	if divu.dvcr&0x01 == 0 {
 		t.Error("OVF not set immediately after triggering write")
@@ -504,7 +504,7 @@ func TestDIVUOverflowCompletesImmediately(t *testing.T) {
 
 // Simplification lock. HM Sec 10.3.3 / Table 10.2: when overflow
 // occurs with OVFIE=1, hardware leaves "the result after 6 cycles
-// of operation" in DVDNTL. erings does not compute the intermediate
+// of operation" in DVDNTL. cassini does not compute the intermediate
 // result; on the DVDNT write path DVDNTL is overwritten with the
 // dividend (divu.go sets d.dvdntl = val before calling divide()),
 // and handleOverflow with OVFIE=1 returns without updating DVDNTL.
@@ -519,16 +519,16 @@ func TestDIVUOverflowOVFIEOne_DVDNTLNotOverwritten(t *testing.T) {
 	divu.Reset()
 
 	// Seed DVDNTL with a sentinel via a clean divide.
-	divu.Write(0xFFFFFF00, 2)
-	divu.Write(0xFFFFFF04, 10)
+	divu.Write(0xFFFFFF00, 2, 0)
+	divu.Write(0xFFFFFF04, 10, 0)
 	if divu.Read(0xFFFFFF14) != 5 {
 		t.Fatalf("setup: DVDNTL = 0x%08X, want 5", divu.Read(0xFFFFFF14))
 	}
 
 	// Enable OVFIE, then trigger an overflow.
-	divu.Write(0xFFFFFF08, 0x02) // OVFIE=1
-	divu.Write(0xFFFFFF00, 0)    // divide by zero
-	divu.Write(0xFFFFFF04, 99)
+	divu.Write(0xFFFFFF08, 0x02, 0) // OVFIE=1
+	divu.Write(0xFFFFFF00, 0, 0)    // divide by zero
+	divu.Write(0xFFFFFF04, 99, 0)
 
 	if divu.dvcr&0x01 == 0 {
 		t.Fatal("OVF not latched on divide-by-zero with OVFIE=1")
@@ -541,7 +541,7 @@ func TestDIVUOverflowOVFIEOne_DVDNTLNotOverwritten(t *testing.T) {
 
 // HM Sec 10.1.1: "Even during the division process, instructions
 // not accessing the division unit can be parallel-processed."
-// erings satisfies this in the degenerate case because division
+// cassini satisfies this in the degenerate case because division
 // completes instantaneously and never presents a stall window to
 // the CPU. Drive a NOP through cpu.Clock() immediately after a
 // DVDNT write and verify it retires in a single cycle with no

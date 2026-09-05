@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
@@ -406,18 +406,18 @@ func (v *VDP1) processCommands(budget int32) (consumed int32, endBit bool) {
 		case 0x6:
 			c, done = v.startLine(&cmd, budget-consumed)
 		case 0x8:
-			v.userClipX1 = cmd.xa
-			v.userClipY1 = cmd.ya
-			v.userClipX2 = cmd.xc
-			v.userClipY2 = cmd.yc
+			v.userClipX1 = int16(cmd.xa)
+			v.userClipY1 = int16(cmd.ya)
+			v.userClipX2 = int16(cmd.xc)
+			v.userClipY2 = int16(cmd.yc)
 			done = true
 		case 0x9:
-			v.sysClipX = cmd.xc
-			v.sysClipY = cmd.yc
+			v.sysClipX = int16(cmd.xc)
+			v.sysClipY = int16(cmd.yc)
 			done = true
 		case 0xA:
-			v.localX = cmd.xa
-			v.localY = cmd.ya
+			v.localX = int16(cmd.xa)
+			v.localY = int16(cmd.ya)
 			done = true
 		default:
 			// Undefined/prohibited Comm (observed: 0xF). The manual does
@@ -439,6 +439,8 @@ func (v *VDP1) processCommands(budget int32) (consumed int32, endBit bool) {
 // to procAddr. Called when a command (drawing or non-drawing)
 // completes.
 func (v *VDP1) advanceProcAddrAfterCmd(cmd *vdp1Command) {
+	// Update LOPR to the last completed command address (VDP1 Manual Sec 3.3)
+	v.lopr = uint16(v.procAddr / 8)
 	jp := (cmd.ctrl >> 12) & 0x07
 	switch jp & 0x03 {
 	case 0: // next

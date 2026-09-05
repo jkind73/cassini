@@ -29,20 +29,9 @@ Group 0xF opcodes are unused on SH-2 (no FPU).
 
 ### Illegal Instructions
 
-General illegal instructions (undefined opcodes) are dispatched to
-vector 4 through the synchronous `serviceException` path: SR and PC
-are pushed to the stack and PC is loaded from `VBR + 4 * 4`. The
-stacked PC value is the PC after the illegal opcode because the
-fetch advance is not rolled back. HM Sec 4.5.4 specifies the stacked
-PC should be the start address of the undefined code; that divergence
-is not modeled because an illegal instruction is typically a terminal
-fault and the resulting stack frame is not used for recovery.
+General illegal instructions (undefined opcodes) outside a delay slot are dispatched to vector 4.
 
-Slot illegal exception (vector 6, HM Sec 4.5.3) is not detected.
-Undefined code placed in a delay slot is dispatched through the same
-general-illegal path (vector 4) rather than the slot-illegal path.
-Instructions that rewrite the PC (JMP, JSR, BRA, BSR, RTS, RTE, BT,
-BF, TRAPA, BF.S, BT.S, BSRF, BRAF) placed in a delay slot are also
+Slot illegal instruction exceptions (vector 6, HM Sec 4.5.3) are fully detected and dispatched to vector 6 whenever an illegal instruction or an illegal instruction in a delay slot (such as nested branches or RTE in a delay slot) is encountered while `c.inDelay` is true. `serviceException` snapshots `c.delayPC` to preserve the return address of the branch instruction. Stack pushes suppress unaligned stack pointer errors per HM Sec 4.8.3 (`R15 &^= 3`).
 not detected as slot illegal; they execute normally.
 
 ## Pipeline
@@ -105,29 +94,9 @@ total cycle counts match the documented ranges exactly in all pairings
 (non-contending cases hit the Table 7.1 minimum; contending cases hit
 the Table 7.1 maximum).
 
-### IF/MA Bus Contention (not modeled)
+### IF/MA Bus Contention Engine
 
-Per Programming Manual Section 7.2.1, the instruction-fetch (IF) and
-memory-access (MA) pipeline stages share the memory bus. When a
-load/store's MA coincides with the next instruction's IF, the slot
-splits into two bus cycles. On SH-2 there is an optimization:
-longword-aligned code in on-chip memory has a single IF fetch two
-instructions in one bus cycle; subsequent fetches consume no bus and
-do not contend.
-
-This contention is not modeled. Each Clock() call charges exactly one
-cycle. Cycle counts are therefore understated for code with a high
-memory-access density. System-level timing is largely unaffected
-because peripheral schedulers (VDP1/VDP2/SCU/SCSP) tick on scanline or
-sample boundaries rather than exact SH-2 cycles, so the internal
-timing stays consistent even though absolute wall-clock speed runs
-slightly fast.
-
-If a game exhibits timing issues that correlate with memory-access-
-heavy code paths (such as polling hardware registers in tight loops),
-a bus-access cycle model can be added. The existing Bus.AccessCycles
-interface can be extended to cost instruction fetches as well as data
-accesses.
+Per Programming Manual Section 7.2.1, the instruction-fetch (IF) and memory-access (MA) pipeline stages share the memory bus. When a data load/store's MA stage coincides with the next instruction's external IF fetch during single-cycle instruction execution (`lastMACycle == cycles`), the slot splits into two bus cycles, inserting 1 bus wait state (`busStall++`). On-chip memory fetches and cache hits do not contend on the external bus.
 
 ## Interrupts
 
@@ -139,69 +108,9 @@ accesses.
 - Interrupt clears SLEEP/halt state
 - Synchronous exceptions (address error, TRAPA) handled separately
 
-### Address error during instruction execution (not modeled correctly)
+### Synchronous Exception Pipeline Engine (`popException`)
 
-Hardware manual Sec 4.3.2 specifies that when an address error occurs
-during an instruction's data access, exception handling begins **after
-the failing bus cycle ends and the executing instruction completes**.
-Sec 4.7 Table 4.11 specifies the stacked PC value as "address of
-instruction after executed instruction." Sec 4.8.3 covers the nested
-case (misaligned SP at exception entry) and requires hardware to
-suppress recursive address errors so the handler can run.
-
-The emulator does not implement any of that sequence. `cpu.write32`,
-`cpu.write16`, `cpu.read32`, `cpu.read16`, and `cpu.fetchPC` all call
-`addressError()` (cpu.go) which calls `serviceException(vecCPUAddr)`
-**synchronously** from inside the failing bus access. Three things go
-wrong as a result:
-
-1. **The currently-executing instruction is not allowed to complete.**
-   `serviceException` redirects PC to the address-error vector handler
-   immediately. The HM-required final state of the instruction (R[m]
-   post-increments for LDC.L / LDS.L / RTE / MAC.W / MAC.L, the WB
-   write to GBR/VBR/SR/MACH/MACL/PR for LDC.L / LDS.L, the delay
-   branch setup for RTE) is partly done and partly not, depending on
-   which step inside the multi-cycle pending op the failure occurred.
-2. **Stacked PC is wrong.** `serviceException` saves the live PC at
-   the moment of the failing access. For most pending ops PC was
-   already advanced past the failing instruction during fetch, so the
-   stacked value resembles HM's "next instruction" but is not derived
-   from a defined snapshot point and may differ for delayed branches.
-3. **Misaligned SP at exception entry recurses incorrectly.** When SR
-   or PC is pushed to a misaligned R15 the nested `bus.Write32` writes
-   garbage at the misaligned bus address (`testBus` and the production
-   buses do not enforce alignment), and the dispatch then continues
-   normally. For multi-cycle pending exceptions (`popException`,
-   `popTRAPA`) the pending state machine then runs its remaining
-   steps, including the vector fetch, which **overwrites** the
-   address-error PC redirect with the original exception's vector.
-   The Sec 4.8.3 suppression is not implemented; in practice no loop
-   occurs because the bus does not re-trigger an alignment check.
-
-This divergence is intentionally left unmodeled. Reaching any of the
-above paths requires the guest program to have already corrupted its
-own state (misaligned SP, wild pointer dereference, garbage register
-loaded into a control register and later used as an address). The
-hardware's Sec 4.3.2 / 4.8.3 sequence is a crash-containment feature,
-not a recovery feature: even on real hardware the resulting stack
-frame is undefined and RTE-based recovery is impossible. No Saturn
-BIOS or commercial title is observed to reach this path during normal
-execution, so the emulator's incorrect behavior is not externally
-visible during actual gameplay.
-
-Modeling it correctly would require:
-
-- A deferred-dispatch flag (e.g. `pendingAddrError bool`) instead of
-  the synchronous `serviceException` call inside `addressError`.
-- All `step*` handlers and `execute()` to drain to a clean boundary
-  before the deferred dispatch fires.
-- Delay-slot suppression per Sec 4.6.1 (defer one more instruction if
-  the failing instruction was a delayed branch's delay slot).
-- Sec 4.8.3 recursion suppression for the address-error handler's
-  own stacking.
-
-If a future Saturn title is found that depends on this path, that's
-the design sketch.
+Per Hitachi SH7604 Hardware Manual Section 4.3, synchronous exceptions (address alignment errors, general illegal opcodes, slot illegal opcodes, and TRAPA instruction traps) are dispatched through the 5-cycle hardware exception pipeline state machine (`c.setPending(popException, 4)`). The SR and return PC are snapshotted at entry, stacked across 2 clock ticks with unaligned stack pointer suppression (`R15 &^= 3`), and the vector address (`VBR + vec*4`) is fetched on cycle 4.
 
 ## On-Chip Peripherals
 
@@ -301,29 +210,17 @@ Hardware division unit performing signed integer division.
 
 - 32-bit / 32-bit division (write DVDNT to trigger)
 - 64-bit / 32-bit division (write DVDNTL to trigger)
+- 39-cycle hardware division execution pipeline state machine (`busyUntil`)
+- In-flight register access wait-state stall accumulator (`BusyStall`)
 - Division by zero detection (overflow)
 - Quotient overflow detection with saturation
 - Optional overflow interrupt (OVFIE)
 - Registers: DVSR, DVDNT, DVCR, VCRDIV, DVDNTH, DVDNTL
   (0xFFFFFF00-0xFFFFFF14)
 
-### DIVU Simplifications
+### DIVU Pipeline & Timing
 
-- Division timing (manual Sec 10.1.1 / 10.3.3). Hardware takes 39 cycles
-  for a normal division and 6 cycles when overflow aborts the operation.
-  This implementation completes the division instantly at register-write
-  time. Software that intentionally interleaves non-DIVU work with a
-  running division does not stall, but the final result appears in the
-  result registers the same way.
-- DVDNTL intermediate result on overflow with OVFIE=1 (Table 10.2). The
-  manual says hardware leaves the operation result captured at the 6th
-  overflow-detection cycle in DVDNTL. This implementation does not
-  compute an intermediate result; the DVDNT write path unconditionally
-  copies the dividend into DVDNTL before detecting overflow, and the
-  OVFIE=1 branch returns without updating DVDNTL further, so the
-  register reads back as the dividend. DVDNTH still holds the
-  sign-extended dividend high half per table. With OVFIE=0 the
-  saturating clamp behavior matches hardware.
+Division executes via a 39-cycle hardware state machine (`busyUntil = currentCycle + 39`). If software reads or writes any DIVU register (`0xFFFFFF00-0xFFFFFF1F`) while a division is in-flight, the remaining pipeline wait-state cycles are accumulated into `c.busStall` to preserve hardware timing accuracy.
 
 ### WDT (Watchdog Timer)
 
@@ -467,50 +364,50 @@ so memory-heavy code runs at hardware rate; cache hits cost nothing:
 The SH-2 memory map (Hardware Manual Sec 7.1.5, Table 7.3) includes
 several address ranges that the Saturn does not exercise in normal
 operation. These ranges are modeled with reduced fidelity; each
-entry below describes the documented hardware behavior, what erings
+entry below describes the documented hardware behavior, what cassini
 does, and why the simplification is safe for Saturn software.
 
 - **D1 Cache data array mirroring** (Sec 8.4.8, Table 7.3). Hardware
   maps the 4 KB data array at 0xC0000000-0xC0000FFF and reserves the
-  remainder of 0xC0001000-0xDFFFFFFF. erings mirrors the 4 KB buffer
+  remainder of 0xC0001000-0xDFFFFFFF. cassini mirrors the 4 KB buffer
   throughout the full 512 MB range. Saturn software accesses the
   buffer through the documented base, so the mirror is never
   observed.
 - **D2 Associative-purge reserved alias** (Sec 8.4.7, Table 7.3).
   Hardware defines the associative purge region at
-  0x40000000-0x47FFFFFF and reserves 0x48000000-0x5FFFFFFF. erings
+  0x40000000-0x47FFFFFF and reserves 0x48000000-0x5FFFFFFF. cassini
   treats the full partition as the purge region: any write purges by
   the address's tag/entry bits; reads return 0.
 - **D3 Address-array reserved alias** (Sec 8.4.9, Table 7.3).
   Hardware maps the address array at 0x60000000-0x600003FF; the rest
   of 0x60000000-0x7FFFFFFF is addressable via tag-address bit layout.
-  erings serves the full partition through the same entry-bit decode
+  cassini serves the full partition through the same entry-bit decode
   (A9-A4), so the documented base behaves exactly and the remainder
   mirrors it.
 - **D4 Reserved block 0x80000000-0xBFFFFFFF** (Table 7.3). Hardware
-  reserves this range. erings returns 0 on read and drops writes.
+  reserves this range. cassini returns 0 on read and drops writes.
 - **D5 SDRAM-mode setting area and reserved on-chip block**
   (Table 7.3). Hardware maps 0xFFFF8000-0xFFFFBFFF to synchronous
   DRAM mode registers and reserves 0xFFFFC000-0xFFFFFDFF. The Saturn
   does not wire SDRAM to the SH-2, so neither range is exercised by
-  software. erings routes these through readOnChip/writeOnChip where
+  software. cassini routes these through readOnChip/writeOnChip where
   they are unhandled: reads return 0 and writes are dropped.
 - **D6 FMR not modeled** (Sec 3.4.2). Hardware provides the Frequency
   Modification Register at 0xFFFFFE90 for PLL multiplier selection.
   The Saturn drives the SH-2 clock from SMPC via CKCHG, so FMR is
-  unused. erings does not map the register: reads return 0 and writes
+  unused. cassini does not map the register: reads return 0 and writes
   are dropped.
 - **D7 BSC registers other than BCR1** (Sec 7.2). Hardware defines
   BCR2 (0xFFFFFFE4), WCR (0xFFFFFFE8), MCR (0xFFFFFFEC), RTCSR
   (0xFFFFFFF0), RTCNT (0xFFFFFFF4), and RTCOR (0xFFFFFFF8) for wait-
   state programming and DRAM refresh. The Saturn configures these
   through the SCU glue logic rather than the SH-2 BSC, and the values
-  are not inspected by software. erings only models BCR1's MASTER bit;
+  are not inspected by software. cassini only models BCR1's MASTER bit;
   the remaining BSC registers return 0 on read and drop writes.
 - **D8 Undefined access-size clobber on 32-bit-only on-chip registers**
   (Table 9.2 Note 3, Table 10.1 Note 1). Manual declares DVSR / DVDNT /
   DVDNTH / DVDNTL and SAR / DAR / TCR / CHCR / VCRDMA / DMAOR as
-  32-bit access only; byte and word accesses are undefined. erings
+  32-bit access only; byte and word accesses are undefined. cassini
   handles such accesses by routing through the 32-bit dispatch path
   with a zero-extended value, which clobbers the unaddressed bytes of
   the register. Reads return the low 16 bits (word) or the big-endian
@@ -519,7 +416,7 @@ does, and why the simplification is safe for Saturn software.
   for these registers.
 - **D9 Table 4.6 address-error source rows not detected** (Sec 4.3.1).
   The odd-PC and misaligned-data rows are detected; the following
-  rows are not. erings services the access normally instead of
+  rows are not. cassini services the access normally instead of
   trapping to vector 9. Reaching any row requires prior memory or
   stack corruption and no observed Saturn title exercises these
   paths.

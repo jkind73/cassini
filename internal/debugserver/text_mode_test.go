@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package debugserver
@@ -37,6 +37,13 @@ func (m *fakeMachine) Serialize() ([]byte, error) {
 func (m *fakeMachine) Deserialize(data []byte) error {
 	copy(m.wram[:], data)
 	return nil
+}
+
+func (m *fakeMachine) SetCyclePause(paused bool) {}
+func (m *fakeMachine) SetCycleStep(count int64)   {}
+func (m *fakeMachine) IsCyclePaused() bool        { return false }
+func (m *fakeMachine) GetRegisters(cpuIdx int) (map[string]uint32, error) {
+	return nil, nil
 }
 
 // 0x06001000 is WRAM-H offset 0x1000, flat offset 0x101000.

@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
@@ -39,6 +39,9 @@ func (v *VDP2) readVDP1Pixel(x, y int) (uint16, bool) {
 		spY = int((v.lineSprRot.baseY + v.lineSprRot.dy*int64(x)) >> 10)
 	} else if v.frame.hiRes && !v.lineFB.is8bpp {
 		spX = x / 2
+	}
+	if v.isWindowMasked(x, y, 5) {
+		return 0, false
 	}
 	if spX < 0 || spX >= v.lineFB.width || spY < 0 || spY >= v.lineFB.height {
 		return 0, false

@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package sh2
@@ -1173,7 +1173,7 @@ func TestWDTOVFLatchedThroughIntInhibit(t *testing.T) {
 	}
 }
 
-// HM Sec 12.2.2 + erings lazy reconcile: after software clears
+// HM Sec 12.2.2 + cassini lazy reconcile: after software clears
 // WTCSR.OVF via the A5-keyed write path, the next processInterrupt
 // scan sees WDT.IRQAsserted()==false and drops the INTC.pending
 // bit. Existing TestResolveWDTLatchClearDirect covers the direct

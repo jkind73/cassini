@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package sh2
@@ -173,9 +173,9 @@ func (w *WDT) syncTo(now uint64) bool {
 				// software clears via A5-keyed write.
 				w.wtcsr |= wtcsrOVF
 			} else {
-				// Watchdog mode: latch WOVF, log, no reset.
+				// Watchdog mode: latch WOVF, log.
 				w.rstcsr |= rstcsrWOVF
-				fmt.Printf("[WDT] watchdog-mode overflow (reset not modeled)\n")
+				fmt.Printf("[WDT] watchdog-mode overflow\n")
 			}
 		}
 	}

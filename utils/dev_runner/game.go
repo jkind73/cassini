@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package main
@@ -8,9 +8,9 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/user-none/erings/core"
-	"github.com/user-none/erings/internal/debugserver"
-	"github.com/user-none/erings/internal/replay"
+	"github.com/jkind73/cassini/core"
+	"github.com/jkind73/cassini/internal/debugserver"
+	"github.com/jkind73/cassini/internal/replay"
 )
 
 type game struct {

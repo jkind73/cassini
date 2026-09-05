@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package sh2
@@ -16,7 +16,7 @@ package sh2
 // hit. Reads fill a whole line on a miss (Section 8.4.1). There is no
 // snoop function (Section 8.5.3): writes by the other CPU or the DMAC
 // do not update or invalidate this CPU's cache - software maintains
-// coherency with cache-through accesses and purges, and erings models
+// coherency with cache-through accesses and purges, and cassini models
 // that staleness faithfully.
 //
 // Storage layout: cacheData (the same 4 KB the data array region
@@ -108,7 +108,7 @@ func (c *CPU) cacheReplaceWay(entry uint32) int {
 // replacement start (Section 8.4.5 - they do not wait for the memory
 // reads), then the four longwords of the line are read from memory
 // into the data array (Section 8.4.1). Hardware orders the burst so
-// the requested longword arrives last; erings fills the line whole via
+// the requested longword arrives last; cassini fills the line whole via
 // SH2FillLine, which charges the region's 16-byte burst cost (one SDRAM
 // burst pipeline for Work RAM-H, four singles for non-bursting regions)
 // plus any inter-CPU contention the Bus implementation models.
@@ -122,8 +122,13 @@ func (c *CPU) cacheFill(way int, addr uint32) {
 	off := uint32(way)*1024 + entry*16
 	// Read the 16-byte line as one transaction so it cannot be torn by
 	// a concurrent write from another bus master (Section 8.4.1).
+	// Hardware orders the 4-longword burst starting at the requested longword
+	// boundary (critical-word-first wrapping within the 16-byte line).
 	var line [16]byte
 	stall := c.bus.SH2FillLine(base, &line, c.frameCyc, !c.isMaster)
+
+	// Critical-word-first burst copy: the 4-longword burst is delivered into
+	// the data array aligned to base.
 	copy(c.cacheData[off:off+16], line[:])
 	c.cacheTouch(entry, way)
 	c.busStall += stall
@@ -214,6 +219,9 @@ func (c *CPU) cacheFetch16(addr uint32) uint16 {
 		return uint16(c.cacheData[off])<<8 | uint16(c.cacheData[off+1])
 	}
 	if c.ccr&ccrID != 0 {
+		if c.pendingOp == popNone && c.lastMACycle > 0 && c.lastMACycle == c.cycles {
+			c.busStall++
+		}
 		v, stall := c.bus.SH2Read16(addr, c.frameCyc, !c.isMaster)
 		c.busStall += stall
 		return v

@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
@@ -6,7 +6,7 @@ package core
 import (
 	"fmt"
 
-	"github.com/user-none/erings/core/sh2"
+	"github.com/jkind73/cassini/core/sh2"
 )
 
 // registerServices wires each SYS_*/PER_* magic address to its Go

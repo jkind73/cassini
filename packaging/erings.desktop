@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=erings
+Name=cassini
 Comment=Sega Saturn emulator
-Exec=erings
-Icon=erings
+Exec=cassini
+Icon=cassini
 Categories=Game;Emulator;
 Terminal=false

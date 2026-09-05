@@ -3,7 +3,7 @@
 # Output directories
 BUILD_DIR := build
 ICONSET_DIR := $(BUILD_DIR)/icon.iconset
-APP_NAME := erings
+APP_NAME := cassini
 APP_BUNDLE := $(BUILD_DIR)/$(APP_NAME).app
 APPDIR := $(BUILD_DIR)/AppDir
 
@@ -17,7 +17,7 @@ APPIMAGE_ARCH ?= $(shell uname -m)
 ICON_MASTER := cmd/desktop/icon.webp
 ICON_PNG := packaging/icon-512.png
 ICON_ICNS := $(BUILD_DIR)/icon.icns
-DESKTOP_FILE := packaging/erings.desktop
+DESKTOP_FILE := packaging/cassini.desktop
 
 # AppImage tooling. linuxdeploy and its appimage plugin must be on PATH.
 LINUXDEPLOY ?= linuxdeploy
@@ -29,7 +29,7 @@ LINUXDEPLOY ?= linuxdeploy
 # substitution or embedded build info.
 VERSION ?=
 ifneq ($(VERSION),)
-VERSION_LDFLAGS := -X github.com/user-none/erings.Version=$(VERSION)
+VERSION_LDFLAGS := -X github.com/jkind73/cassini.Version=$(VERSION)
 endif
 
 # The version segment is dropped when no VERSION is supplied (plain local builds).
@@ -45,20 +45,20 @@ all: desktop
 
 # Build the desktop binary
 desktop:
-	go build -ldflags "$(VERSION_LDFLAGS)" -o $(BUILD_DIR)/erings ./cmd/desktop/
+	go build -ldflags "$(VERSION_LDFLAGS)" -o $(BUILD_DIR)/cassini ./cmd/desktop/
 
 # Build the Windows desktop binary as a GUI subsystem app so no console
 # window is opened when it runs.
 windows:
-	go build -ldflags '-H=windowsgui -s -w -extldflags "-static -lpthread" $(VERSION_LDFLAGS)' -o $(BUILD_DIR)/erings.exe ./cmd/desktop/
+	go build -ldflags '-H=windowsgui -s -w -extldflags "-static -lpthread" $(VERSION_LDFLAGS)' -o $(BUILD_DIR)/cassini.exe ./cmd/desktop/
 
 # Build a Linux AppImage.
 appimage:
-	go build -ldflags "-s -w $(VERSION_LDFLAGS)" -o $(BUILD_DIR)/erings ./cmd/desktop/
+	go build -ldflags "-s -w $(VERSION_LDFLAGS)" -o $(BUILD_DIR)/cassini ./cmd/desktop/
 	@rm -rf $(APPDIR)
 	APPIMAGE_EXTRACT_AND_RUN=1 ARCH=$(APPIMAGE_ARCH) OUTPUT=$(APPIMAGE_NAME) $(LINUXDEPLOY) \
 		--appdir $(APPDIR) \
-		--executable $(BUILD_DIR)/erings \
+		--executable $(BUILD_DIR)/cassini \
 		--desktop-file $(DESKTOP_FILE) \
 		--icon-file $(ICON_PNG) \
 		--icon-filename $(APP_NAME) \
@@ -68,11 +68,11 @@ appimage:
 
 # Build macOS .app bundle.
 macos: icons
-	go build -ldflags "-s -w $(VERSION_LDFLAGS)" -o $(BUILD_DIR)/erings ./cmd/desktop/
+	go build -ldflags "-s -w $(VERSION_LDFLAGS)" -o $(BUILD_DIR)/cassini ./cmd/desktop/
 	@echo "Creating $(APP_NAME).app bundle..."
 	@mkdir -p "$(APP_BUNDLE)/Contents/MacOS"
 	@mkdir -p "$(APP_BUNDLE)/Contents/Resources"
-	@cp $(BUILD_DIR)/erings "$(APP_BUNDLE)/Contents/MacOS/"
+	@cp $(BUILD_DIR)/cassini "$(APP_BUNDLE)/Contents/MacOS/"
 	@cp $(ICON_ICNS) "$(APP_BUNDLE)/Contents/Resources/icon.icns"
 	@cp packaging/macos_info.plist "$(APP_BUNDLE)/Contents/Info.plist"
 	@echo "APPL????" > "$(APP_BUNDLE)/Contents/PkgInfo"

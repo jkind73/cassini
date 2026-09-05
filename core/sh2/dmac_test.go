@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package sh2
@@ -201,7 +201,7 @@ func TestDMACRoundRobinFirstIsChannel1(t *testing.T) {
 }
 
 // Simplification lock. HM Sec 9.3.4 Fig 9.10 describes cycle-steal
-// as a one-unit-at-a-time interleave between CPU and DMAC. erings
+// as a one-unit-at-a-time interleave between CPU and DMAC. cassini
 // transfers the full block atomically at register-write time and
 // then stalls the CPU for an accumulated AccessCycles budget
 // (README "DMAC Simplifications"). This test pins the stall
@@ -239,7 +239,7 @@ func TestDMACStallBlocksCPUExecution(t *testing.T) {
 }
 
 // HM Sec 11.1 / 12.1: FRT and WDT have their own clock domains and
-// count regardless of which bus master holds the bus. erings
+// count regardless of which bus master holds the bus. cassini
 // confirms this via the Clock() path (cpu.go:205) that calls
 // tickPeripherals during DMAC stall.
 func TestDMACStallTicksPeripherals(t *testing.T) {
@@ -328,7 +328,7 @@ func TestDMACTEPersistsUntilSoftwareClear(t *testing.T) {
 // NMI during transfer sets DMAOR.NMIF and aborts. Per the table,
 // "TE = 1 ... when this transfer is the final transfer." A mid-
 // transfer NMI therefore must NOT set TE on the aborted channel.
-// erings CPU.NMI() (cpu.go:539) sets DMAOR.NMIF directly so the
+// cassini CPU.NMI() (cpu.go:539) sets DMAOR.NMIF directly so the
 // DMAC.transferReady guard fires.
 func TestDMACNMIAbortsBeforeTE(t *testing.T) {
 	bus := newTestBus(0x1000)

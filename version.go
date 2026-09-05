@@ -1,19 +1,19 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package erings
+package cassini
 
 import "strings"
 
 const (
-	Name = "erings"
+	Name = "cassini"
 
 	// defaultVersion is reported when no build-time version is available.
 	defaultVersion = "0.0.0"
 )
 
 // Version is the version reported to the UI. It may be overridden at link
-// time with -ldflags "-X github.com/user-none/erings.Version=...". When it is
+// time with -ldflags "-X github.com/jkind73/cassini.Version=...". When it is
 // not overridden, init resolves it from the git archive substitution.
 var Version = defaultVersion
 

@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package debugserver
@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/user-none/erings/internal/debugserver/responses"
+	"github.com/jkind73/cassini/internal/debugserver/responses"
 )
 
 // respEnvelope wraps a successful command response in JSON mode. The

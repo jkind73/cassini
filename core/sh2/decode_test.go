@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package sh2
@@ -194,6 +194,9 @@ func TestDecodeAllGroups(t *testing.T) {
 				cpu.reg.PC = 0x20
 				cpu.bus.Write32(0x10, 0x00000080)
 				cpu.Clock()
+				for cpu.pendingOp == popException {
+					cpu.Clock()
+				}
 				if cpu.reg.PC != 0x80 {
 					t.Errorf("PC = 0x%08X, want 0x80 (exception handler)", cpu.reg.PC)
 				}

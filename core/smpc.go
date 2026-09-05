@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
@@ -288,13 +288,18 @@ func (s *SMPC) readPDR(port int) uint8 {
 	thtr := pdr & 0x60
 	switch thtr {
 	case 0x60: // TH=1, TR=1
-		input = 0x10 | (b2>>3)&0x08 | 0x04 // TL=1, D3=L, D2=1, D1=0, D0=0
+		input = 0x10 | ((b2 >> 4) & 0x08) | 0x04 // TL=1, D3=L (b2 bit 7), D2=1, D1=0, D0=0
 	case 0x40: // TH=1, TR=0
-		input = 0x10 | (b1 & 0x0F) // TL=1, D3=Start, D2=A, D1=C, D0=B
+		// b1 layout: Right(7), Left(6), Down(5), Up(4), Start(3), A(2), C(1), B(0)
+		// D3=Start (bit 3), D2=A (bit 2), D1=C (bit 1), D0=B (bit 0)
+		input = 0x10 | (b1 & 0x0F)
 	case 0x20: // TH=0, TR=1
-		input = 0x10 | (b1>>4)&0x0F // TL=1, D3=Right, D2=Left, D1=Down, D0=Up
+		// D3=Right (bit 7), D2=Left (bit 6), D1=Down (bit 5), D0=Up (bit 4)
+		input = 0x10 | ((b1 >> 4) & 0x0F)
 	case 0x00: // TH=0, TR=0
-		input = 0x10 | (b2>>4)&0x0F // TL=1, D3=R, D2=X, D1=Y, D0=Z
+		// b2 layout: R(7), X(6), Y(5), Z(4), L(3)...
+		// D3=R (bit 7), D2=X (bit 6), D1=Y (bit 5), D0=Z (bit 4)
+		input = 0x10 | ((b2 >> 4) & 0x0F)
 	}
 
 	// Combine: output pins from written PDR, input pins from controller
@@ -423,6 +428,9 @@ func (s *SMPC) dispatch() bool {
 
 // SSHEnabled returns whether the slave SH-2 is enabled.
 func (s *SMPC) SSHEnabled() bool { return s.sshEnabled }
+
+// AreaCode returns the current SMPC area code byte.
+func (s *SMPC) AreaCode() uint8 { return s.areaCode }
 
 // SoundEnabled returns whether the sound CPU is enabled.
 func (s *SMPC) SoundEnabled() bool { return s.soundEnabled }
@@ -640,4 +648,10 @@ func (s *SMPC) collectPeripheralData() {
 	s.intbackActive = false
 }
 
-func (s *SMPC) cmdNMIREQ() {} // 0x18 - NMI Request
+// cmdNMIREQ handles SMPC command 0x18 (NMI Request).
+// On real hardware this asserts an NMI pulse to the Master SH-2.
+func (s *SMPC) cmdNMIREQ() {
+	if s.masterNMI != nil {
+		s.masterNMI()
+	}
+}

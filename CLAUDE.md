@@ -1,4 +1,4 @@
-This is the erings Sega Saturn emulator
+This is the cassini Sega Saturn emulator
 
 
 # Reading Documentation

@@ -1,14 +1,16 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
 
 import (
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 
-	"github.com/user-none/erings/core/sh2"
+	"github.com/jkind73/cassini/core/sh2"
 )
 
 // Emulator ties together all Saturn components and runs one frame at a time.
@@ -122,7 +124,7 @@ type Emulator struct {
 	// systemReset has run, then RunFrame delivers it. The SMPC User's
 	// Manual section 2.3 (Resetable System Management Commands) states
 	// that CKCHG resets VDP1, VDP2, SCU, and SCSP to their power-on
-	// values and then resumes the master. erings resumes the master with
+	// values and then resumes the master. cassini resumes the master with
 	// the NMI, so it must be delivered after systemReset applies that
 	// power-on reset, not before.
 	pendingMasterNMI atomic.Bool
@@ -141,6 +143,13 @@ type Emulator struct {
 	frameTotalCycles int64
 	masterLineCarry  uint32
 
+	regionMode string // "Auto-Select", "Japan", "USA", "Europe (PAL)", "HLE (Disabled)"
+
+	japanBIOS  []byte
+	usaBIOS    []byte
+	europeBIOS []byte
+
+
 	// Save-state scratch, reused across Serialize calls: rewind
 	// captures at up to every-other-frame rates, and fresh 12+ MB
 	// allocations per capture caused GC stutter. Serialize runs only
@@ -149,6 +158,12 @@ type Emulator struct {
 	stateBody    []byte
 	statePayload []byte
 	stateComp    stateCompressor
+
+	// Debug state: synchronization for cycle-accurate stepping.
+	cyclePaused    atomic.Bool
+	cycleStepCount atomic.Int64
+	cycleCond      *sync.Cond
+	cycleLocker    sync.Mutex
 
 	displayProc *DisplayProcessor
 }
@@ -182,6 +197,7 @@ func NewEmulator() *Emulator {
 		slave:       slave,
 		displayProc: NewDisplayProcessor(),
 	}
+	emu.cycleCond = sync.NewCond(&emu.cycleLocker)
 
 	// Wire boundary-crossing callbacks. SCU drives master IRL. SMPC
 	// requests the master NMI, defers its system reset to the frame
@@ -268,6 +284,22 @@ func (e *Emulator) applyRAMCartOverride() {
 // at System ID offset $40: J=Japan, T=Asia NTSC, U=North America,
 // E=Europe PAL.
 func (e *Emulator) autoDetectRegion() {
+	switch e.regionMode {
+	case "Japan (NTSC)", "Japan":
+		e.smpc.areaCode = 0x01
+		e.vdp2.SetPAL(false)
+		return
+	case "USA (NTSC)", "USA":
+		e.smpc.areaCode = 0x04
+		e.vdp2.SetPAL(false)
+		return
+	case "Europe (PAL)", "PAL":
+		e.smpc.areaCode = 0x0C
+		e.vdp2.SetPAL(true)
+		return
+	}
+
+	// Default: "Auto-Select" disc's region string from IP header offset $40
 	if len(e.ipImage) < 0x4A {
 		return
 	}
@@ -319,11 +351,16 @@ func (e *Emulator) ReadMemory(addr uint32, buf []byte) uint32 {
 }
 
 // GetFramebuffer returns raw RGBA pixel data for the most recently
-// completed frame. RunFrame waits for the VDP worker's frame walk
-// before returning, so the buffer is complete and the worker parked
-// while the host reads it.
+// completed frame, processed through DisplayProcessor for shader effects.
 func (e *Emulator) GetFramebuffer() []byte {
-	return e.vdp2.Framebuffer()
+	raw := e.vdp2.Framebuffer()
+	stride := e.vdp2.FramebufferStride()
+	w := stride / 4
+	h := e.vdp2.DisplayHeight()
+	if e.displayProc != nil {
+		return e.displayProc.ProcessFrame(raw, w, h, stride)
+	}
+	return raw
 }
 
 // GetFramebufferStride returns the stride (bytes per row) of the framebuffer.
@@ -506,6 +543,9 @@ func (e *Emulator) SetOption(key string, value string) {
 		}
 	case "crt_curvature":
 		e.displayProc.SetCRTCurvature(value == "true" || value == "1" || value == "on")
+	case "region_lock":
+		e.regionMode = value
+		e.autoDetectRegion()
 	case "lightgun_mode":
 		enabled := (value == "true" || value == "1" || value == "on")
 		e.smpc.SetLightgunMode(0, enabled)
@@ -520,34 +560,63 @@ func (e *Emulator) SetOption(key string, value string) {
 	}
 }
 
-// SetBIOS loads a BIOS image by key name. For main_bios, also sets
-// the master SH-2 entry point from the reset vectors.
+// SetBIOS loads a BIOS image by key name ("main_bios", "japan_bios", "usa_bios", "europe_bios").
 func (e *Emulator) SetBIOS(key string, data []byte) error {
-	if key == "main_bios" {
-		if err := e.bus.SetBIOS(data); err != nil {
-			return err
+	switch key {
+	case "main_bios", "japan_bios":
+		e.japanBIOS = data
+		return e.loadBIOSData(data)
+	case "usa_bios":
+		e.usaBIOS = data
+		if len(e.japanBIOS) == 0 {
+			return e.loadBIOSData(data)
 		}
-		e.master.LoadResetVectors()
-		// Slave SH-2 uses the same reset vectors. It is held in reset
-		// until SMPC SSHON releases it, but its PC/SP must already be
-		// at the power-on entry point so it begins executing BIOS code
-		// rather than interpreting the vector table as instructions.
-		e.slave.LoadResetVectors()
-		e.hasBIOS = true
 		return nil
+	case "europe_bios":
+		e.europeBIOS = data
+		if len(e.japanBIOS) == 0 && len(e.usaBIOS) == 0 {
+			return e.loadBIOSData(data)
+		}
+		return nil
+	default:
+		return errors.New("unknown BIOS key: " + key)
 	}
-	return errors.New("unknown BIOS key: " + key)
 }
 
-// Start prepares the emulator for the first RunFrame. When no real
-// BIOS was loaded via SetBIOS, it constructs an HLEBIOS in place
-// and boots it from the cached disc IP image. The HLEBIOS instance
-// is not retained on the emulator: it stays alive only through the
-// closures it wires into master.HLEHook / slave.HLEHook, and is
-// otherwise invisible to the rest of the emulator. Real-BIOS boots
-// construct nothing and leave the CPU hooks nil.
+func (e *Emulator) loadBIOSData(data []byte) error {
+	if len(data) == 0 {
+		return nil
+	}
+	if err := e.bus.SetBIOS(data); err != nil {
+		return err
+	}
+	e.master.LoadResetVectors()
+	e.slave.LoadResetVectors()
+	e.hasBIOS = true
+	return nil
+}
+
+// Start prepares the emulator for the first RunFrame.
 func (e *Emulator) Start() error {
-	if !e.hasBIOS {
+	// Pick matching regional BIOS based on disc / mode selection
+	if e.regionMode == "Auto-Select" || e.regionMode == "" {
+		if e.smpc.areaCode == 0x04 && len(e.usaBIOS) > 0 {
+			_ = e.loadBIOSData(e.usaBIOS)
+		} else if e.smpc.areaCode == 0x0C && len(e.europeBIOS) > 0 {
+			_ = e.loadBIOSData(e.europeBIOS)
+		} else if len(e.japanBIOS) > 0 {
+			_ = e.loadBIOSData(e.japanBIOS)
+		}
+	} else if (e.regionMode == "Japan (NTSC)" || e.regionMode == "Japan") && len(e.japanBIOS) > 0 {
+		_ = e.loadBIOSData(e.japanBIOS)
+	} else if (e.regionMode == "USA (NTSC)" || e.regionMode == "USA") && len(e.usaBIOS) > 0 {
+		_ = e.loadBIOSData(e.usaBIOS)
+	} else if (e.regionMode == "Europe (PAL)" || e.regionMode == "PAL") && len(e.europeBIOS) > 0 {
+		_ = e.loadBIOSData(e.europeBIOS)
+	}
+
+	useHLE := !e.hasBIOS || e.regionMode == "HLE" || e.regionMode == "HLE (Disabled)"
+	if useHLE {
 		hle := NewHLEBIOS(e.bus, e.master, e.slave)
 		if err := hle.Boot(e.ipImage); err != nil {
 			return err
@@ -574,4 +643,49 @@ func (e *Emulator) Close() {
 	e.closed = true
 	close(e.vdpJobCh)
 	close(e.secondaryJobCh)
+}
+
+func (e *Emulator) SetCyclePause(paused bool) {
+	e.cyclePaused.Store(paused)
+	if !paused {
+		e.cycleStepCount.Store(0)
+	}
+}
+
+func (e *Emulator) SetCycleStep(count int64) {
+	e.cyclePaused.Store(true)
+	e.cycleStepCount.Store(count)
+	e.cycleLocker.Lock()
+	e.cycleCond.Broadcast()
+	e.cycleLocker.Unlock()
+}
+
+func (e *Emulator) IsCyclePaused() bool {
+	return e.cyclePaused.Load()
+}
+
+func (e *Emulator) GetRegisters(cpuIdx int) (map[string]uint32, error) {
+	var cpu *sh2.CPU
+	if cpuIdx == 0 {
+		cpu = e.master
+	} else if cpuIdx == 1 {
+		cpu = e.slave
+	} else {
+		return nil, fmt.Errorf("invalid cpu index %d (expected 0 or 1)", cpuIdx)
+	}
+
+	regs := cpu.Registers()
+	res := make(map[string]uint32)
+	for i := 0; i < 16; i++ {
+		res[fmt.Sprintf("R%d", i)] = regs.R[i]
+	}
+	res["PC"] = regs.PC
+	res["PR"] = regs.PR
+	res["SR"] = regs.SR
+	res["GBR"] = regs.GBR
+	res["VBR"] = regs.VBR
+	res["MACH"] = regs.MACH
+	res["MACL"] = regs.MACL
+
+	return res, nil
 }

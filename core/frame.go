@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
@@ -7,7 +7,8 @@ import (
 	"runtime"
 	"sync/atomic"
 
-	"github.com/user-none/erings/core/sh2"
+	"github.com/jkind73/cassini/core/sh2"
+
 )
 
 // Run loop
@@ -239,6 +240,15 @@ func (e *Emulator) RunFrame() {
 // the cross-CPU FRT capture; the slave latches its own FRT at its next sync
 // barrier, within a chunk.
 func (e *Emulator) stepMaster(frameCyc int64) {
+	if e.cyclePaused.Load() {
+		e.cycleLocker.Lock()
+		for e.cycleStepCount.Load() <= 0 {
+			e.cycleCond.Wait()
+		}
+		e.cycleStepCount.Add(-1)
+		e.cycleLocker.Unlock()
+	}
+
 	e.master.SetFrameCyc(frameCyc)
 	state := e.master.Clock()
 	if state.Bus == sh2.BusWrite && e.bus.MINITWritten() {
@@ -249,6 +259,15 @@ func (e *Emulator) stepMaster(frameCyc int64) {
 // stepSlave advances the slave SH-2 by one cycle, mirroring stepMaster: a
 // SINIT write flags the master's FRT capture for the master's next barrier.
 func (e *Emulator) stepSlave(frameCyc int64) {
+	if e.cyclePaused.Load() {
+		e.cycleLocker.Lock()
+		for e.cycleStepCount.Load() <= 0 {
+			e.cycleCond.Wait()
+		}
+		e.cycleStepCount.Add(-1)
+		e.cycleLocker.Unlock()
+	}
+
 	e.slave.SetFrameCyc(frameCyc)
 	state := e.slave.Clock()
 	if state.Bus == sh2.BusWrite && e.bus.SINITWritten() {

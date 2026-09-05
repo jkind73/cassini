@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
@@ -1416,6 +1416,7 @@ func TestSMPCINTBACKHold(t *testing.T) {
 		t.Errorf("sr = 0x%02X, want 0x%02X (unchanged during hold)", s.sr, prevSR)
 	}
 }
+
 
 func TestSMPCINTBACKContinueWithoutActive(t *testing.T) {
 	// SF write when intbackActive=false should not trigger continue logic

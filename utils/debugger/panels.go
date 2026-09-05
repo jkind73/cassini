@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package main
@@ -11,9 +11,9 @@ import (
 
 	"github.com/ebitenui/ebitenui/image"
 	"github.com/ebitenui/ebitenui/widget"
-	"github.com/user-none/erings/internal/debugserver/responses"
-	"github.com/user-none/erings/utils/debugger/client"
-	"github.com/user-none/erings/utils/debugger/ui"
+	"github.com/jkind73/cassini/internal/debugserver/responses"
+	"github.com/jkind73/cassini/utils/debugger/client"
+	"github.com/jkind73/cassini/utils/debugger/ui"
 )
 
 // sidePollTicks is the watch/break list refresh cadence in 60Hz ticks.
@@ -31,6 +31,7 @@ const sideListRows = 8
 type side struct {
 	watchRows *widget.Container
 	breakRows *widget.Container
+	regRows   *widget.Container
 
 	// watchRowSig and breakRowSig identify the rows currently built
 	// (address, width, condition, heat). A poll whose signature matches
@@ -45,6 +46,7 @@ type side struct {
 
 	watches []responses.WatchInfo
 	breaks  []responses.BreakInfo
+	regs    map[string]uint32
 
 	// watchHeat and breakHeat hold per-address highlight ticks set by
 	// pushed events.
@@ -75,6 +77,9 @@ func (a *app) ensureSideDefaults() {
 	if a.side.watchHeat == nil {
 		a.side.watchHeat = map[uint32]int{}
 		a.side.breakHeat = map[uint32]int{}
+	}
+	if a.side.regs == nil {
+		a.side.regs = make(map[string]uint32)
 	}
 	if a.side.watchAddWidth == 0 {
 		a.side.watchAddWidth = 8
@@ -138,6 +143,26 @@ func (a *app) buildBreakPanel() *widget.Container {
 	a.side.breakRowSig = nil
 	panel := sideListPanel("Breaks", a.side.breakRows, a.buildBreakAddRow())
 	a.rebuildBreakRows()
+	return panel
+}
+
+// buildRegPanel creates the CPU register panel.
+func (a *app) buildRegPanel() *widget.Container {
+	a.side.regRows = listRowsContainer()
+	panel := widget.NewContainer(
+		widget.ContainerOpts.BackgroundImage(image.NewNineSliceColor(ui.Surface)),
+		widget.ContainerOpts.Layout(widget.NewGridLayout(
+			widget.GridLayoutOpts.Columns(1),
+			widget.GridLayoutOpts.Stretch([]bool{true}, []bool{false, true, false}),
+			widget.GridLayoutOpts.Padding(widget.NewInsetsSimple(ui.Px(6))),
+			widget.GridLayoutOpts.Spacing(0, ui.Px(6)),
+		)),
+	)
+	panel.AddChild(ui.Label("Registers", ui.TextSecondary))
+	view, wrap := ui.Scrollable(a.side.regRows, ui.Surface)
+	view.MinHeight = ui.TextRowsHeight(sideListRows)
+	view.MaxHeight = view.MinHeight
+	panel.AddChild(wrap)
 	return panel
 }
 
@@ -293,6 +318,54 @@ func (a *app) pollSide() {
 	}
 	a.pollWatches(false)
 	a.pollBreaks(false)
+	a.pollRegs(false)
+}
+
+func (a *app) pollRegs(force bool) {
+	if !force && a.tick%sidePollTicks != 0 {
+		return
+	}
+	// We poll both Master (0) and Slave (1)
+	for _, idx := range []int{0, 1} {
+		a.send(fmt.Sprintf("regs %d", idx), func(r client.Response) {
+			var res map[string]uint32
+			if err := json.Unmarshal(r.Data, &res); err != nil {
+				return
+			}
+			// Update internal state and rebuild rows
+			// For simplicity, we merge them or handle separately.
+			// Here we just update a combined map for the view.
+			for k, v := range res {
+				prefix := "M"
+				if idx == 1 {
+					prefix = "S"
+				}
+				a.side.regs[prefix+k] = v
+			}
+			a.rebuildRegRows()
+		})
+	}
+}
+
+func (a *app) rebuildRegRows() {
+	if a.side.regRows == nil {
+		return
+	}
+	for _, child := range a.side.regRows.Children() {
+		a.side.regRows.RemoveChild(child)
+	}
+
+	// Sort keys for consistent display
+	keys := make([]string, 0, len(a.side.regs))
+	for k := range a.side.regs {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+
+	for _, k := range keys {
+		val := a.side.regs[k]
+		a.side.regRows.AddChild(ui.Label(fmt.Sprintf("%s: 0x%08X", k, val), ui.Text))
+	}
 }
 
 // pollWatches re-reads the watch list. force asks for a fresh read

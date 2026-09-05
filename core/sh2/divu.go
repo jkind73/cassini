@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package sh2
@@ -9,10 +9,11 @@ import "math"
 // It performs 32/32 -> 32 and 64/32 -> 32 signed division in hardware,
 // triggered by writing the dividend register.
 type DIVU struct {
-	dvsr   uint32 // Divisor register
-	dvdnt  uint32 // Dividend register (32-bit) / quotient result
-	dvdnth uint32 // Dividend high (64-bit mode) / remainder result
-	dvdntl uint32 // Dividend low (64-bit mode) / quotient result
+	dvsr      uint32 // Divisor register
+	dvdnt     uint32 // Dividend register (32-bit) / quotient result
+	dvdnth    uint32 // Dividend high (64-bit mode) / remainder result
+	dvdntl    uint32 // Dividend low (64-bit mode) / quotient result
+	busyUntil uint64 // Cycle timestamp when 39-cycle division completes
 
 	dvcr   uint32 // Division control register (bit 1=OVFIE, bit 0=OVF)
 	vcrdiv uint32 // Interrupt vector number (bits 6-0)
@@ -34,6 +35,7 @@ func (d *DIVU) Reset() {
 	d.dvdntl = 0
 	d.dvcr = 0
 	d.vcrdiv = 0
+	d.busyUntil = 0
 }
 
 // Read reads a DIVU register by full address (0xFFFFFF00-0xFFFFFF14).
@@ -64,7 +66,7 @@ func (d *DIVU) Read(addr uint32) uint32 {
 // Write writes a DIVU register by full address (0xFFFFFF00-0xFFFFFF14).
 // Writing DVDNT triggers 32/32 division. Writing DVDNTL triggers 64/32 division.
 // Returns true if a division overflow interrupt should be generated.
-func (d *DIVU) Write(addr uint32, val uint32) bool {
+func (d *DIVU) Write(addr uint32, val uint32, currentCycle uint64) bool {
 	switch addr {
 	case 0xFFFFFF00: // DVSR
 		d.dvsr = val
@@ -77,6 +79,7 @@ func (d *DIVU) Write(addr uint32, val uint32) bool {
 		} else {
 			d.dvdnth = 0
 		}
+		d.busyUntil = currentCycle + 39
 		return d.divide()
 	case 0xFFFFFF08: // DVCR
 		d.dvcr = val & 0x03 // only bits 1-0
@@ -86,9 +89,19 @@ func (d *DIVU) Write(addr uint32, val uint32) bool {
 		d.dvdnth = val
 	case 0xFFFFFF14, 0xFFFFFF1C: // DVDNTL - triggers 64/32 division (and alias)
 		d.dvdntl = val
+		d.busyUntil = currentCycle + 39
 		return d.divide()
 	}
 	return false
+}
+
+// BusyStall returns the remaining stall cycles if a read/write occurs
+// during an in-flight 39-cycle division.
+func (d *DIVU) BusyStall(currentCycle uint64) uint32 {
+	if currentCycle < d.busyUntil {
+		return uint32(d.busyUntil - currentCycle)
+	}
+	return 0
 }
 
 // divide performs signed division using dvdnth:dvdntl / dvsr.

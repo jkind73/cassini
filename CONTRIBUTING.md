@@ -30,7 +30,7 @@ be documented as a guess and not documentation grounded.
 
 ## AI usage
 
-erings is primarily developed with the help of AI. However,
+cassini is primarily developed with the help of AI. However,
 strict management of the AI is absolutely necessary. These
 guidelines need to be followed for effective use with this
 emulator (and others).

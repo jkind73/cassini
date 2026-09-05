@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package sh2
@@ -57,6 +57,7 @@ type ExecState struct {
 	MultiplierBusyUntil uint64
 	BusStall            uint32
 	NextPeripheralEvent uint64
+	LastMACycle         uint64
 
 	// Fetch-line memo. Captured verbatim: it stays coherent because
 	// the cache it resolves into is restored byte-for-byte.
@@ -114,12 +115,13 @@ type FRTState struct {
 
 // DIVUState holds the division unit registers.
 type DIVUState struct {
-	DVSR   uint32
-	DVDNT  uint32
-	DVDNTH uint32
-	DVDNTL uint32
-	DVCR   uint32
-	VCRDIV uint32
+	DVSR      uint32
+	DVDNT     uint32
+	DVDNTH    uint32
+	DVDNTL    uint32
+	DVCR      uint32
+	VCRDIV    uint32
+	BusyUntil uint64
 }
 
 // DMACChanState holds one DMA channel's registers.
@@ -180,6 +182,7 @@ func (c *CPU) State() State {
 	s.Exec.MultiplierBusyUntil = c.multiplierBusyUntil
 	s.Exec.BusStall = c.busStall
 	s.Exec.NextPeripheralEvent = c.nextPeripheralEvent
+	s.Exec.LastMACycle = c.lastMACycle
 	s.Exec.FetchLineAddr = c.fetchLineAddr
 	s.Exec.FetchLineWay = c.fetchLineWay
 	s.Exec.FetchLineOff = c.fetchLineOff
@@ -222,6 +225,7 @@ func (c *CPU) State() State {
 	s.DIVU.DVDNTL = c.divu.dvdntl
 	s.DIVU.DVCR = c.divu.dvcr
 	s.DIVU.VCRDIV = c.divu.vcrdiv
+	s.DIVU.BusyUntil = c.divu.busyUntil
 
 	for i := range c.dmac.ch {
 		s.DMAC.Ch[i].SAR = c.dmac.ch[i].sar
@@ -276,6 +280,7 @@ func (c *CPU) SetState(s *State) {
 	c.multiplierBusyUntil = s.Exec.MultiplierBusyUntil
 	c.busStall = s.Exec.BusStall
 	c.nextPeripheralEvent = s.Exec.NextPeripheralEvent
+	c.lastMACycle = s.Exec.LastMACycle
 	c.fetchLineAddr = s.Exec.FetchLineAddr
 	c.fetchLineWay = s.Exec.FetchLineWay
 	c.fetchLineOff = s.Exec.FetchLineOff
@@ -318,6 +323,7 @@ func (c *CPU) SetState(s *State) {
 	c.divu.dvdntl = s.DIVU.DVDNTL
 	c.divu.dvcr = s.DIVU.DVCR
 	c.divu.vcrdiv = s.DIVU.VCRDIV
+	c.divu.busyUntil = s.DIVU.BusyUntil
 
 	for i := range c.dmac.ch {
 		c.dmac.ch[i].sar = s.DMAC.Ch[i].SAR

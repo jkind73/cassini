@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package statedump explodes serialized save states into per-field
@@ -18,12 +18,12 @@ import (
 
 // Save state container layout (mirrors core/savestate.go):
 //
-//	header: magic[8] "ERINGSST" | version u32 | gameIDLen u8 | gameID |
+//	header: magic[8] "CASSINIST" | version u32 | gameIDLen u8 | gameID |
 //	        biosHash[32] | dataCRC u32 | segmented S2-compressed body
 //	chunk:  tag[16, zero-filled ASCII] | length u32 | payload[length]
 //	field:  nameLen u8 | name | size u32 | data[size]
 const (
-	stateMagic  = "ERINGSST"
+	stateMagic  = "CASSINIST"
 	stateTagLen = 16
 	biosHashLen = 32
 )

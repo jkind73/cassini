@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
@@ -1392,7 +1392,7 @@ func TestSCSPPLFOSZeroNoModulation(t *testing.T) {
 	writeSlotReg(s, 0, 0x06, 0xFFFF)
 	writeSlotReg(s, 0, 0x08, 0x001F)
 	writeSlotReg(s, 0, 0x10, 0x0000)          // OCT=0, FNS=0
-	writeSlotReg(s, 0, 0x12, (20<<10)|0x0000) // LFOF=20, PLFOS=0
+	writeSlotReg(s, 0, 0x12, 20<<10) // LFOF=20, PLFOS=0
 	writeSlotReg(s, 0, 0x00, 0x1800)
 
 	// Collect phase advances over several ticks
@@ -1422,7 +1422,7 @@ func TestSCSPALFOSZeroNoModulation(t *testing.T) {
 	writeSlotReg(s, 0, 0x08, 0x001F) // AR=31 fast
 	writeSlotReg(s, 0, 0x0C, 0x0000) // TL=0
 	writeSlotReg(s, 0, 0x10, 0x0000)
-	writeSlotReg(s, 0, 0x12, (20<<10)|0x0000) // LFOF=20, ALFOS=0
+	writeSlotReg(s, 0, 0x12, 20<<10) // LFOF=20, ALFOS=0
 	writeSlotReg(s, 0, 0x00, 0x1800)
 
 	s.TickSamples(20) // Let attack complete
@@ -2273,7 +2273,7 @@ func TestSCSPMixEXTSDirectPath(t *testing.T) {
 	// Slot 16 MIXER reg at offset 0x16 controls EXTS0 EFSDL/EFPAN.
 	// EFSDL=7 (0 dB), EFPAN=0 (centered). Both fields are at bits 7:5
 	// and 4:0 of the MIXER reg respectively.
-	writeSlotReg(s, 16, 0x16, (7<<5)|0)
+	writeSlotReg(s, 16, 0x16, (7<<5))
 	// MVOL = 15 (max master volume so we don't clamp to silence)
 	s.Write(0x400, 0x000F)
 	s.ResetMixBuffer(4)
@@ -2352,7 +2352,7 @@ func TestSCSPMixEXTSSlot17(t *testing.T) {
 	s.SetCDAudioSource(fake)
 
 	// Slot 17 MIXER reg controls EXTS1 (right channel).
-	writeSlotReg(s, 17, 0x16, (7<<5)|0)
+	writeSlotReg(s, 17, 0x16, (7<<5))
 	s.Write(0x400, 0x000F)
 	s.ResetMixBuffer(4)
 

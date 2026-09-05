@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
@@ -1268,11 +1268,11 @@ func TestBus32BitInvalidRegions(t *testing.T) {
 		t.Errorf("CS1 open-bus read32 = 0x%08X, want 0xFFFFFFFF", got)
 	}
 
-	// VDP1 register 32-bit invalid.
-	if got := bus.Read32(0x05D00000); got != 0 {
-		t.Errorf("VDP1 reg read32 = 0x%08X, want 0", got)
-	}
+	// VDP1 register 32-bit access splits into two 16-bit operations per hardware bus-splitting
 	bus.Write32(0x05D00000, 0xCAFEBABE)
+	if got := bus.Read32(0x05D00000); got != 0 {
+		t.Errorf("VDP1 reg read32 = 0x%08X, want 0 (write-only registers)", got)
+	}
 
 	// Unmapped default.
 	if got := bus.Read32(0x0F000000); got != 0 {

@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package core
@@ -49,7 +49,7 @@ func TestDisplayProcessorCRTShader(t *testing.T) {
 
 	// Verify scanline dimming on y=1
 	// Pixel (0,1): offset 8 -> red channel masked for subpixel (x=0 mask: g*0.85, b*0.85; y=1 scanline dimmed * 0.5)
-	if dst[8] >= 255 {
+	if dst[8] == 255 {
 		t.Errorf("Scanline pixel y=1 red channel = %d, want < 255 (dimmed)", dst[8])
 	}
 }

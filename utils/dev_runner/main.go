@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package main
@@ -9,15 +9,19 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"runtime/pprof"
 	"syscall"
+	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/jkind73/cassini/core"
+	"github.com/jkind73/cassini/internal/debugserver"
+	"github.com/jkind73/cassini/internal/replay"
 	"github.com/user-none/eblitui/romloader"
-	"github.com/user-none/erings/core"
-	"github.com/user-none/erings/internal/debugserver"
-	"github.com/user-none/erings/internal/replay"
+	"golang.org/x/sys/windows"
 )
 
 func main() {
@@ -32,6 +36,7 @@ func main() {
 	loadState := flag.String("load-state", "", "Path to a save state file to load at startup. Requires the same disc and BIOS the state was captured with.")
 	enableDebugServer := flag.Bool("debug-server", false, "Enable the debug server, bound to 127.0.0.1.")
 	debugServerPort := flag.Int("debug-server-port", 5000, "Debug server TCP port.")
+	launchDebugUI := flag.Bool("ui", false, "Launch debugger UI automatically (implies -debug-server).")
 	flag.Parse()
 
 	if *record != "" && *replayPath != "" {
@@ -51,8 +56,7 @@ func main() {
 	}
 
 	if *biosPath == "" && *discPath == "" {
-		fmt.Fprintln(os.Stderr, "Usage: saturn -bios <path> [-disc <path>]  OR  saturn -disc <path>  (HLE BIOS)")
-		os.Exit(1)
+		log.Printf("[INFO] No -bios or -disc specified; starting in HLE standalone mode.")
 	}
 
 	emu := core.NewEmulator()
@@ -136,6 +140,7 @@ func main() {
 	if err := emu.Start(); err != nil {
 		log.Fatalf("emulator start failed: %v", err)
 	}
+	//emu.InstallPCWatchdog()
 
 	// State load happens after Start so the boot path has run (HLE
 	// service hooks wired, workers spawned but parked) and before the
@@ -152,21 +157,29 @@ func main() {
 		fmt.Printf("[STATE] loaded %s\n", *loadState)
 	}
 
+	log.Printf("[WINDOW] Configuring Ebiten window...")
 	ebiten.SetWindowTitle("Saturn")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	ebiten.SetTPS(60)
 
 	ebiten.SetWindowSize(800, 600)
 	ebiten.SetWindowSizeLimits(400, 300, -1, -1)
+	log.Printf("[WINDOW] Window configured. Proceeding to audio and game init...")
 
 	// Frame rate comes from the core's region (60 NTSC / 50 PAL), read once
 	// after Start so the audio sizing and pacing match the loaded game.
 	fps := emu.GetTiming().FPS
 
-	audioPlayer, err := newAudioPlayer(fps)
+	log.Printf("[DEBUG] Initializing audio player with FPS: %d", fps)
+	var ap *audioPlayer
+	//var err error
+	ap, err = newAudioPlayer(fps)
 	if err != nil {
 		log.Printf("Warning: audio initialization failed: %v", err)
+	} else {
+		log.Printf("[DEBUG] Audio player initialized successfully")
 	}
+	audioPlayer := ap
 
 	g := &game{
 		emu:         emu,
@@ -183,21 +196,34 @@ func main() {
 		player:      player,
 	}
 
-	if *enableDebugServer {
+	// Enable debug server if -ui flag is set
+	debugServerEnabled := *enableDebugServer || *launchDebugUI
+	if debugServerEnabled {
 		if *debugServerPort < 1 || *debugServerPort > 65535 {
 			log.Fatalf("debug server port must be 1-65535")
 		}
+		log.Printf("[DEBUG] Starting debug server on port %d...", *debugServerPort)
 		s, err := debugserver.Start(*debugServerPort, emu, &g.paused)
 		if err != nil {
 			log.Fatalf("failed to start debug server: %v", err)
 		}
+		log.Printf("[DEBUG] Debug server started successfully")
 		g.debugServer = s
 		fmt.Printf("[DEBUGSERVER] listening on 127.0.0.1:%d\n", *debugServerPort)
+
+		// Launch debugger UI if requested
+		if *launchDebugUI {
+			log.Printf("[DEBUG] Launching debugger client...")
+			go launchDebuggerClient(*debugServerPort)
+		}
 	}
 
+	log.Printf("[DEBUG] Starting watchdog and emulation loop...")
 	g.startWatchdog()
 	go g.emulationLoop()
+	log.Printf("[DEBUG] Watchdog and loop started")
 
+	log.Printf("[WINDOW] Attempting to launch Ebiten window with RunGame...")
 	runErr := ebiten.RunGame(g)
 
 	// Always run the close path on any clean exit (Cmd+Q, window-X,
@@ -226,5 +252,87 @@ func main() {
 	// window close — not a fatal error. Only escalate other errors.
 	if runErr != nil && !errors.Is(runErr, ebiten.Termination) {
 		log.Fatal(runErr)
+	}
+}
+
+// launchDebuggerClient launches the debugger UI tool as a subprocess.
+// It runs in a goroutine to not block the main thread.
+func launchDebuggerClient(port int) {
+	// Give the debug server a moment to start up
+	time.Sleep(1 * time.Second)
+
+	// Get the current working directory (workspace root)
+	wd, err := os.Getwd()
+	if err != nil {
+		log.Printf("[DEBUGGER] Failed to get working directory: %v", err)
+		return
+	}
+
+	// Find the debugger tool in the utils/debugger directory
+	debuggerDir := filepath.Join(wd, "utils", "debugger")
+
+	// On Windows, we need to build the debugger first to get a proper .exe
+	// that can create a GUI window independently
+	debuggerExe := filepath.Join(debuggerDir, "debugger.exe")
+
+	log.Printf("[DEBUGGER] Building debugger at %s", debuggerExe)
+
+	// Build the debugger executable
+	buildCmd := exec.Command("go", "build", "-o", "debugger.exe", ".")
+	buildCmd.Dir = debuggerDir
+	buildCmd.Stdout = os.Stdout
+	buildCmd.Stderr = os.Stderr
+
+	if err := buildCmd.Run(); err != nil {
+		log.Printf("[DEBUGGER] Failed to build debugger: %v", err)
+		// Fall back to go run if build fails
+		launchDebuggerWithGoRun(debuggerDir, port)
+		return
+	}
+
+	// Launch the built executable as a separate process
+	debuggerCmd := exec.Command(debuggerExe, "-connect", fmt.Sprintf("127.0.0.1:%d", port))
+	debuggerCmd.Dir = debuggerDir
+	// Don't attach stdout/stderr to parent process - let it have its own console
+	debuggerCmd.Stdout = nil
+	debuggerCmd.Stderr = nil
+	// On Windows, set CREATE_NEW_CONSOLE to get a separate window
+	debuggerCmd.SysProcAttr = &syscall.SysProcAttr{
+		CreationFlags: windows.CREATE_NEW_CONSOLE,
+	}
+
+	log.Printf("[DEBUGGER] Launching debugger UI: %s -connect 127.0.0.1:%d", debuggerExe, port)
+
+	// Start the debugger process (non-blocking)
+	if err := debuggerCmd.Start(); err != nil {
+		log.Printf("[DEBUGGER] Failed to start debugger: %v", err)
+		// Fall back to go run
+		launchDebuggerWithGoRun(debuggerDir, port)
+		return
+	}
+
+	// Detach from the child process - let it run independently
+	go func() {
+		if err := debuggerCmd.Wait(); err != nil {
+			log.Printf("[DEBUGGER] Debugger process ended: %v", err)
+		}
+	}()
+}
+
+// launchDebuggerWithGoRun is a fallback using go run if building fails
+func launchDebuggerWithGoRun(debuggerDir string, port int) {
+	log.Printf("[DEBUGGER] Falling back to go run in %s", debuggerDir)
+
+	// Use start command on Windows to create a new console window
+	cmdLine := fmt.Sprintf("go run . -connect 127.0.0.1:%d", port)
+
+	// On Windows, use cmd /c start to open a new window
+	debuggerCmd := exec.Command("cmd", "/c", "start", "cmd", "/c", cmdLine)
+	debuggerCmd.Dir = debuggerDir
+	debuggerCmd.Stdout = nil
+	debuggerCmd.Stderr = nil
+
+	if err := debuggerCmd.Start(); err != nil {
+		log.Printf("[DEBUGGER] Failed to start debugger with go run: %v", err)
 	}
 }

@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Command statedump explodes a save state file into a directory of
@@ -14,7 +14,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/user-none/erings/internal/statedump"
+	"github.com/jkind73/cassini/internal/statedump"
 )
 
 func main() {

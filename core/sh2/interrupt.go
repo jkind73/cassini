@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package sh2
@@ -184,31 +184,17 @@ func (c *CPU) acceptInterrupt(level uint8, vec uint16, fromIRL bool) bool {
 	return true
 }
 
-// serviceException pushes SR and PC onto the stack and jumps to the
-// exception vector handler. Used for synchronous exceptions (address
-// errors, illegal instructions). Runs atomically (not decomposed).
-// The stack pushes and the vector fetch are ordinary memory accesses,
-// so they go through the cache: a write-through store updates a hit
-// line (Section 8.4.2), keeping a cached stack line coherent for the
-// handler's RTE pop. A misaligned R15 or VBR would recurse through
-// addressError, so those fall back to the raw bus path.
+// serviceException schedules synchronous exceptions (address errors,
+// illegal instructions, traps) into the decomposed 5-cycle hardware pipeline.
+// The SR and stacked return PC are snapshotted on entry, and alignment
+// suppression (Sec 4.8.3) is applied during stack pushes.
 func (c *CPU) serviceException(vec uint16) {
-	if c.reg.R[15]&3 == 0 {
-		c.reg.R[15] -= 4
-		c.Write32(c.reg.R[15], c.reg.SR)
-		c.reg.R[15] -= 4
-		c.Write32(c.reg.R[15], c.reg.PC)
-	} else {
-		c.reg.R[15] -= 4
-		c.bus.Write32(c.reg.R[15], c.reg.SR)
-		c.reg.R[15] -= 4
-		c.bus.Write32(c.reg.R[15], c.reg.PC)
+	returnPC := c.reg.PC
+	if c.inDelay {
+		returnPC = c.delayPC
 	}
-	vecAddr := c.reg.VBR + uint32(vec)*4
-	if vecAddr&3 == 0 {
-		c.reg.PC = c.Read32(vecAddr)
-	} else {
-		c.reg.PC = c.bus.Read32(vecAddr)
-	}
-	c.cycles += 5
+	c.pendingVal = c.reg.SR
+	c.pendingVal2 = returnPC
+	c.pendingAddr = uint32(vec)
+	c.setPending(popException, 4)
 }

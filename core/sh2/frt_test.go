@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package sh2
@@ -609,7 +609,7 @@ func TestFRTOCIASubPriorityVectorShared(t *testing.T) {
 
 // HM Sec 11.4.5 Fig 11.10: input capture snapshots the current FRC
 // value into ICR at the capture signal and simultaneously sets ICF.
-// ICR is a read-only register in erings, so subsequent FRC ticks
+// ICR is a read-only register in cassini, so subsequent FRC ticks
 // must not disturb the captured value. Simplification note: the
 // FTI pin signal phasing described in Sec 11.4.4 Fig 11.9 (one-cycle
 // delay on capture-coincident-with-ICR-upper-read) is not modeled.

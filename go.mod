@@ -1,4 +1,4 @@
-module github.com/user-none/erings
+module github.com/jkind73/cassini
 
 go 1.25.7
 
@@ -42,6 +42,6 @@ require (
 	golang.org/x/image v0.35.0 // indirect
 	golang.org/x/mobile v0.0.0-20250606033058-a2a15c67f36f // indirect
 	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/sys v0.40.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
 )

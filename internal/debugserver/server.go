@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package debugserver implements the emulator debug server. It speaks a
@@ -19,7 +19,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/user-none/erings/internal/debugserver/responses"
+	"github.com/jkind73/cassini/internal/debugserver/responses"
 )
 
 // Machine is the emulator surface the server needs.
@@ -29,6 +29,15 @@ type Machine interface {
 	ReadMemory(addr uint32, buf []byte) uint32
 	Serialize() ([]byte, error)
 	Deserialize(data []byte) error
+
+	// SetCyclePause sets the cycle-pause state.
+	SetCyclePause(paused bool)
+	// SetCycleStep sets how many cycles to advance before pausing.
+	SetCycleStep(count int64)
+	// IsCyclePaused reports the current cycle-pause state.
+	IsCyclePaused() bool
+	// GetRegisters returns the state of the specified CPU (0=master, 1=slave).
+	GetRegisters(cpuIdx int) (map[string]uint32, error)
 }
 
 // clientCmd is one line received from a client. The connection
@@ -191,6 +200,9 @@ func (c *Server) serveConn(conn net.Conn) {
 		}
 		prompt()
 	}
+	if err := sc.Err(); err != nil {
+		// Log scanner error if needed, or just ignore for connection close
+	}
 }
 
 // errDeferredResponse is returned by a handler that has arranged for the
@@ -214,6 +226,9 @@ func init() {
 	commands = []command{
 		{"pause", "pause", "pause emulation", cmdPause},
 		{"resume", "resume", "resume emulation", cmdResume},
+		{"cyclepause", "cyclepause", "pause emulation at cycle boundary", cmdCyclePause},
+		{"cycle-step", "cycle-step [n]", "while cycle-paused, run n cycles (default 1) then re-pause", cmdCycleStep},
+		{"regs", "regs [0|1]", "report registers for CPU (0=master, 1=slave)", cmdRegs},
 		{"frame", "frame [n]", "while paused, run n frames (default 1) then re-pause", cmdFrame},
 		{"state", "state", "report pause, frame, width, and search candidates", cmdState},
 		{"regions", "regions", "list known memory regions", cmdRegions},
@@ -332,6 +347,36 @@ func cmdResume(c *Server, args []string) (any, error) {
 	return "resumed", nil
 }
 
+func cmdCyclePause(c *Server, args []string) (any, error) {
+	c.machine.SetCyclePause(true)
+	return "cycle-paused", nil
+}
+
+func cmdCycleStep(c *Server, args []string) (any, error) {
+	n := int64(1)
+	if len(args) > 0 {
+		v, err := strconv.ParseInt(args[0], 10, 64)
+		if err != nil || v < 1 {
+			return nil, fmt.Errorf("cycle count must be a positive integer")
+		}
+		n = v
+	}
+	c.machine.SetCycleStep(n)
+	return fmt.Sprintf("stepping %d cycles", n), nil
+}
+
+func cmdRegs(c *Server, args []string) (any, error) {
+	idx := 0
+	if len(args) > 0 {
+		v, err := strconv.Atoi(args[0])
+		if err != nil || v < 0 || v > 1 {
+			return nil, fmt.Errorf("cpu index must be 0 (master) or 1 (slave)")
+		}
+		idx = v
+	}
+	return c.machine.GetRegisters(idx)
+}
+
 func cmdFrame(c *Server, args []string) (any, error) {
 	n := 1
 	if len(args) > 0 {
@@ -365,7 +410,12 @@ func cmdState(c *Server, args []string) (any, error) {
 	if len(args) != 0 {
 		return nil, fmt.Errorf("usage: state")
 	}
-	s := responses.StateResult{Paused: c.paused.Load(), Frame: c.frame, Width: c.currentWidth()}
+	s := responses.StateResult{
+		Paused:      c.paused.Load(),
+		CyclePaused: c.machine.IsCyclePaused(),
+		Frame:       c.frame,
+		Width:       c.currentWidth(),
+	}
 	if c.search != nil {
 		s.SearchActive = true
 		s.Candidates = c.search.total()
