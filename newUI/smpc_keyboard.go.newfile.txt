@@ -1,0 +1,406 @@
+// Copyright 2026 The cassini Authors
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// NEW FILE: add as smpc_keyboard.go in the real project (package core,
+// matching bus.go/smpc.go/emulator.go).
+
+package core
+
+import "sync"
+
+// Sega Saturn Keyboard, per the official SMPC User's Manual (Table
+// 3.20, "3.3 Support Peripheral Data Format", Sega Enterprises 1997,
+// www.infochunk.com/saturn/segahtml_en/hard/smpc/hon/p03_30.htm).
+//
+// This replaces an earlier draft whose packet format didn't match the
+// documented wire protocol byte-for-byte (modifier flags and scancode
+// were in the wrong byte positions, and the pad-emulation bytes 1/2
+// were missing entirely). Architecture -- mutex-protected event FIFO,
+// direct-mode TH/TR/TL handshake state machine, per-region layout
+// filtering -- is kept as originally designed; only buildPacket and
+// the peripheral ID/type constants were corrected against the manual.
+//
+// Folded into package core (not a separate package) to match every
+// other file in cassini's core -- bus.go, smpc.go, emulator.go are
+// all flat package core, and this is the same category of component.
+
+// KeyboardLayout specifies the regional layout variant.
+type KeyboardLayout int
+
+const (
+	LayoutJapanese KeyboardLayout = iota
+	LayoutWestern
+)
+
+// Scancodes: PS/2 Scancode Set 2, verbatim. Justified, not arbitrary:
+// the manual's own KBTYPE field description says KBTYPE=000 means "an
+// IBM keyboard 101,102,106 keyboard is connected to the conversion
+// adapter" -- Saturn keyboards were IBM-PC-keyboard-compatible via
+// exactly this kind of adapter, so PS/2 Set 2 is the documented family
+// to use. Not independently verified against a literal Sega-published
+// scancode table (the manual's own tables don't enumerate one), but
+// well-motivated by what it does document.
+const (
+	CodeNull       byte = 0x00
+	CodeF1         byte = 0x05
+	CodeF2         byte = 0x06
+	CodeF3         byte = 0x04
+	CodeF4         byte = 0x0C
+	CodeF5         byte = 0x03
+	CodeF6         byte = 0x0B
+	CodeF7         byte = 0x83
+	CodeF8         byte = 0x0A
+	CodeF9         byte = 0x01
+	CodeF10        byte = 0x09
+	CodeF11        byte = 0x78
+	CodeF12        byte = 0x07
+	CodeEsc        byte = 0x76
+	CodeTab        byte = 0x0D
+	CodeCapsLock   byte = 0x58
+	CodeLShift     byte = 0x12
+	CodeLCtrl      byte = 0x14
+	CodeLAlt       byte = 0x11
+	CodeRShift     byte = 0x59
+	CodeRAlt       byte = 0x17
+	CodeRCtrl      byte = 0x18
+	CodeEnter      byte = 0x5A
+	CodeBackspace  byte = 0x66
+	CodeSpace      byte = 0x29
+	CodeInsert     byte = 0x70
+	CodeDelete     byte = 0x71
+	CodeHome       byte = 0x6C
+	CodeEnd        byte = 0x69
+	CodePageUp     byte = 0x7D
+	CodePageDown   byte = 0x7A
+	CodeUp         byte = 0x75
+	CodeDown       byte = 0x72
+	CodeLeft       byte = 0x6B
+	CodeRight      byte = 0x74
+	CodeNumLock    byte = 0x77
+	CodeScrollLock byte = 0x7E
+
+	// Letter keys needed for the pad-emulation byte mapping (Table
+	// 3.20's key-correspondence table), standard PS/2 Set 2 values.
+	CodeA byte = 0x1C
+	CodeS byte = 0x1B
+	CodeD byte = 0x23
+	CodeQ byte = 0x15
+	CodeE byte = 0x24
+	CodeZ byte = 0x1A
+	CodeX byte = 0x22
+	CodeC byte = 0x21
+
+	// JP layout specific keys
+	CodeZenkakuHankaku byte = 0x0E
+	CodeMuhenkan       byte = 0x13
+	CodeHenkan         byte = 0x67
+	CodeHiragana       byte = 0x64
+	CodeYen            byte = 0x6A
+	CodeRo             byte = 0x51
+)
+
+// PeripheralIDKeyboard: Saturn Peripheral ID = 0011 0100 = 0x34 (type
+// 3, data size 4), Table 3.20.
+const PeripheralIDKeyboard byte = 0x34
+
+// KBTYPE values, per Table 3.20's KBTYPE2-0 field description.
+const (
+	KBTypeSaturnKeyboard byte = 0x0 // 000: Saturn keyboard / IBM 101/102/106 via conversion adapter
+	KBTypeUnknown        byte = 0x7 // 111: unrecognized device
+)
+
+type KeyEvent struct {
+	Scancode byte
+	Released bool
+}
+
+type SaturnKeyboard struct {
+	mu sync.Mutex
+
+	layout KeyboardLayout
+	kbType byte // KBTYPE2-0, defaults to KBTypeSaturnKeyboard
+
+	// Live modifier/lock states (feed 3rd Data byte -- CapsLock/
+	// NumLock/ScrollLock -- and the digital pad-emulation bytes below,
+	// NOT a side-channel status byte the way an earlier draft had it;
+	// the manual has no dedicated Ctrl/Alt/Shift bits at all, those are
+	// communicated to the game purely via Make/Break events on the
+	// modifier keys' own scancodes in D7-D0, same as any other key).
+	capsLock, numLock, scrollLock bool
+
+	// Live pad-emulation key states (1st/2nd Data are LEVEL data, not
+	// event data -- Table 3.20's key-correspondence table maps: Right
+	// -> Right, Left -> Left, Down -> Down, Up -> Up, Start -> Esc,
+	// A TRG -> Z, C TRG -> C, B TRG -> X, R TRG -> E, X TRG -> A,
+	// Y TRG -> S, Z TRG -> D, L TRG -> Q).
+	padRight, padLeft, padDown, padUp bool
+	padStart, padA, padC, padB        bool
+	padR, padX, padY, padZ, padL      bool
+
+	eventQueue []KeyEvent
+	maxQueue   int
+
+	currentPacket [4]byte
+
+	thIn, trIn bool
+	stepIndex  int
+	readBuffer []byte
+}
+
+func NewSaturnKeyboard(layout KeyboardLayout) *SaturnKeyboard {
+	kb := &SaturnKeyboard{
+		layout:     layout,
+		kbType:     KBTypeSaturnKeyboard,
+		maxQueue:   32,
+		eventQueue: make([]KeyEvent, 0, 32),
+		numLock:    true,
+	}
+	kb.buildPacket(KeyEvent{Scancode: CodeNull, Released: false})
+	return kb
+}
+
+func (k *SaturnKeyboard) SetLayout(layout KeyboardLayout) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.layout = layout
+}
+
+func (k *SaturnKeyboard) PushKeyEvent(scancode byte, released bool) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	down := !released
+	switch scancode {
+	case CodeCapsLock:
+		if down {
+			k.capsLock = !k.capsLock
+		}
+	case CodeNumLock:
+		if down {
+			k.numLock = !k.numLock
+		}
+	case CodeScrollLock:
+		if down {
+			k.scrollLock = !k.scrollLock
+		}
+	}
+
+	// Update pad-emulation level state per Table 3.20's correspondence
+	// table.
+	switch scancode {
+	case CodeRight:
+		k.padRight = down
+	case CodeLeft:
+		k.padLeft = down
+	case CodeDown:
+		k.padDown = down
+	case CodeUp:
+		k.padUp = down
+	case CodeEsc:
+		k.padStart = down
+	case CodeZ:
+		k.padA = down
+	case CodeC:
+		k.padC = down
+	case CodeX:
+		k.padB = down
+	case CodeE:
+		k.padR = down
+	case CodeA:
+		k.padX = down
+	case CodeS:
+		k.padY = down
+	case CodeD:
+		k.padZ = down
+	case CodeQ:
+		k.padL = down
+	}
+
+	if k.layout == LayoutWestern {
+		switch scancode {
+		case CodeZenkakuHankaku, CodeMuhenkan, CodeHenkan, CodeHiragana, CodeYen, CodeRo:
+			return
+		}
+	}
+
+	if len(k.eventQueue) >= k.maxQueue {
+		k.eventQueue = k.eventQueue[1:]
+	}
+	k.eventQueue = append(k.eventQueue, KeyEvent{Scancode: scancode, Released: released})
+}
+
+// buildPacket constructs the 4 data bytes exactly per Table 3.20.
+func (k *SaturnKeyboard) buildPacket(evt KeyEvent) {
+	// 1st Data: Right,Left,Down,Up,Start,ATRG,CTRG,BTRG -- active low
+	// (0 = pressed), matching every other digital-pad-shaped table in
+	// the manual.
+	var b0 byte = 0xFF
+	if k.padRight {
+		b0 &^= 0x80
+	}
+	if k.padLeft {
+		b0 &^= 0x40
+	}
+	if k.padDown {
+		b0 &^= 0x20
+	}
+	if k.padUp {
+		b0 &^= 0x10
+	}
+	if k.padStart {
+		b0 &^= 0x08
+	}
+	if k.padA {
+		b0 &^= 0x04
+	}
+	if k.padC {
+		b0 &^= 0x02
+	}
+	if k.padB {
+		b0 &^= 0x01
+	}
+
+	// 2nd Data: RTRG,XTRG,YTRG,ZTRG,LTRG,KBTYPE2,KBTYPE1,KBTYPE0.
+	var b1 byte = 0x00
+	if !k.padR {
+		b1 |= 0x80
+	}
+	if !k.padX {
+		b1 |= 0x40
+	}
+	if !k.padY {
+		b1 |= 0x20
+	}
+	if !k.padZ {
+		b1 |= 0x10
+	}
+	if !k.padL {
+		b1 |= 0x08
+	}
+	b1 |= k.kbType & 0x07
+
+	// 3rd Data: 0,CapsLock,NumLock,ScrollLock,Make,1,1,Break.
+	var b2 byte = 0x06 // bits 1-2 fixed at 1 per the table
+	if k.capsLock {
+		b2 |= 0x40
+	}
+	if k.numLock {
+		b2 |= 0x20
+	}
+	if k.scrollLock {
+		b2 |= 0x10
+	}
+	if evt.Scancode != CodeNull {
+		if evt.Released {
+			b2 |= 0x01 // Break
+		} else {
+			b2 |= 0x08 // Make
+		}
+	}
+
+	// 4th Data: D7-D0, the key number (scancode).
+	b3 := evt.Scancode
+
+	k.currentPacket[0] = b0
+	k.currentPacket[1] = b1
+	k.currentPacket[2] = b2
+	k.currentPacket[3] = b3
+}
+
+func (k *SaturnKeyboard) PollFrame() [4]byte {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	var evt KeyEvent
+	if len(k.eventQueue) > 0 {
+		evt = k.eventQueue[0]
+		k.eventQueue = k.eventQueue[1:]
+	} else {
+		evt = KeyEvent{Scancode: CodeNull, Released: false}
+	}
+	k.buildPacket(evt)
+	return k.currentPacket
+}
+
+// GetSMPCReport returns the 5-byte INTBACK response (ID + 4 data
+// bytes), for direct use by SMPC.collectPeripheralData -- see
+// smpc.go.patch.txt.
+func (k *SaturnKeyboard) GetSMPCReport() []byte {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	var evt KeyEvent
+	if len(k.eventQueue) > 0 {
+		evt = k.eventQueue[0]
+		k.eventQueue = k.eventQueue[1:]
+	} else {
+		evt = KeyEvent{Scancode: CodeNull, Released: false}
+	}
+	k.buildPacket(evt)
+
+	report := make([]byte, 5)
+	report[0] = PeripheralIDKeyboard
+	copy(report[1:], k.currentPacket[:])
+	return report
+}
+
+// StepDirectProtocol: unchanged from the original design (the direct-
+// mode handshake framing -- 2 header nibbles + 8 data nibbles -- was
+// already correct; it just needed buildPacket underneath it fixed).
+func (k *SaturnKeyboard) StepDirectProtocol(th, tr bool) (dataNibble byte, tl bool) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	if !th && k.thIn {
+		k.stepIndex = 0
+		var evt KeyEvent
+		if len(k.eventQueue) > 0 {
+			evt = k.eventQueue[0]
+			k.eventQueue = k.eventQueue[1:]
+		} else {
+			evt = KeyEvent{Scancode: CodeNull, Released: false}
+		}
+		k.buildPacket(evt)
+
+		k.readBuffer = make([]byte, 10)
+		k.readBuffer[0] = (PeripheralIDKeyboard >> 4) & 0x0F
+		k.readBuffer[1] = PeripheralIDKeyboard & 0x0F
+		for i := 0; i < 4; i++ {
+			k.readBuffer[2+(i*2)] = (k.currentPacket[i] >> 4) & 0x0F
+			k.readBuffer[3+(i*2)] = k.currentPacket[i] & 0x0F
+		}
+	}
+	k.thIn = th
+
+	if tr != k.trIn {
+		k.trIn = tr
+		if k.stepIndex < len(k.readBuffer) {
+			k.stepIndex++
+		}
+	}
+
+	if k.stepIndex < len(k.readBuffer) {
+		dataNibble = k.readBuffer[k.stepIndex]
+	} else {
+		dataNibble = 0x0F
+	}
+	tl = tr
+	return dataNibble, tl
+}
+
+func (k *SaturnKeyboard) Reset() {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	k.eventQueue = k.eventQueue[:0]
+	k.padRight, k.padLeft, k.padDown, k.padUp = false, false, false, false
+	k.padStart, k.padA, k.padC, k.padB = false, false, false, false
+	k.padR, k.padX, k.padY, k.padZ, k.padL = false, false, false, false, false
+	k.capsLock = false
+	k.numLock = true
+	k.scrollLock = false
+	k.stepIndex = 0
+	k.thIn = true
+	k.trIn = true
+	k.buildPacket(KeyEvent{Scancode: CodeNull, Released: false})
+}

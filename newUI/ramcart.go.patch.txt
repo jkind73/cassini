@@ -1,0 +1,67 @@
+Patch for ramcart.go
+====================
+
+Extends the existing per-product override table with titles confirmed
+to need the 1MB cart specifically (see bus.go.patch.txt's provenance
+notes for sourcing -- Ymir issue #98 / Mednafen cart database,
+cross-checked against satakore.com for KOF96).
+
+Deliberately NOT included previously: Samurai Shodown IV (Amakusa
+Kourin) -- now added below. The person confirmed T-3116G directly;
+independently cross-checked against 6+ sources (satakore.com,
+arcade-history.com, retroplace, okini.land) before adding it, same
+diligence as every other entry here. T-3118G is a bundle SKU
+("Kakuchou Ram Doukon Okaidoku Set!!" -- same game pre-packaged with
+the RAM cart), included on the same footing as KOF96's T-3109G bundle
+SKU above.
+
+var ramCartOverrides = map[string]uint8{
+	"T-16103H": ramCartIDNone, // Die Hard Trilogy: Fails to run with a memory cart inserted
+
++	// 1MB DRAM cart required/recommended -- see bus.go's provenance
++	// notes. Some of these are "optional" on real hardware (the game
++	// runs fine with no cart at all) but visually corrupt or crash
++	// with the 4MB cart specifically, which is the failure mode this
++	// override table exists to prevent (it only ever needs to steer
++	// away from the 4MB default, not force a cart where none is
++	// needed) -- so "optional 1MB, broken on 4MB" titles are included
++	// here on the same footing as "1MB required" titles.
++	"T-3108G":  ramCartID1MB, // King of Fighters '96 (Japan)
++	"T-3109G":  ramCartID1MB, // King of Fighters '96 (Japan, bundled-with-cart SKU)
++	"T-3110G":  ramCartID1MB, // King of Fighters '96 + '95 Double Pack (Japan)
++	"T-1521G":  ramCartID1MB, // Astra Superstars (Japan)
++	"T-9904G":  ramCartID1MB, // Cotton 2 (Japan)
++	"T-1217G":  ramCartID1MB, // Cyberbots (Japan)
++	"GS-9107":  ramCartID1MB, // Fighter's History Dynamite (Japan)
++	"T-20109G": ramCartID1MB, // Friends: Seishun no Kagayaki (Japan)
++	"T-3116G":  ramCartID1MB, // Samurai Spirits: Amakusa Kourin / Samurai Shodown IV (Japan)
++	"T-3118G":  ramCartID1MB, // Samurai Spirits: Amakusa Kourin, RAM cart bundle SKU (Japan)
++
++	// ROM cartridge titles: NOT listed here. They're handled
++	// separately by romcartdb + emulator.go's disc-load path (see
++	// romcartdb.go), which sets ramCartID to ramCartIDNone and calls
++	// Bus.SetROMCartridge instead -- adding them to this DRAM-cart
++	// override table would be wrong, since they don't use a DRAM
++	// cart at all.
+}
+
+--- 2. Small pure lookup table, added alongside ramCartOverrides in
+the same file (no I/O -- mirrors that table's own style) ---
+
++// romCartProducts lists product numbers whose game expects a ROM
++// cartridge (KOF '95, Ultraman) rather than a DRAM expansion cart --
++// see romCartRequired below and Emulator.SetROMCartridge in
++// emulator.go.patch.txt. Loading the actual cart image bytes is a
++// host-side concern (mirrors SetBIOS); this table only says "don't
++// put a DRAM cart ID here", the same way ramCartOverrides says "put
++// this specific DRAM cart ID here". Product numbers per
++// romcartdb.Known's provenance (Ymir issues #71/#98).
++var romCartProducts = map[string]bool{
++	"T-3101G":  true, // King of Fighters '95 (Japan)
++	"MK-81088": true, // King of Fighters '95 (Europe)
++	"T-13308G": true, // Ultraman: Hikari no Kyojin Densetsu (Japan)
++}
++
++func romCartRequired(product string) bool {
++	return romCartProducts[product]
++}

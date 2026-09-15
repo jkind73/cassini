@@ -1,0 +1,150 @@
+Section 0: retire eblitui -- the coreif -> uiface rename
+==========================================================
+
+This is the change that actually removes cassini's dependency on
+github.com/user-none/eblitui. Apply this FIRST, before sections 1-4
+below (which were written assuming it's already done).
+
+--- Package doc comment (lines 4-5) ---
+
+-// Package adapter exposes the cassini Saturn core through the eblitui
+-// coreif interfaces so it can run under the eblitui desktop UI.
++// Package adapter exposes the cassini Saturn core through the uiface
++// interfaces so it can run under any ui.Manager implementation
++// (see package ui and ui/ebiten) -- no longer tied to any specific
++// UI framework.
+
+--- Import line ---
+
+-	"github.com/user-none/eblitui/coreif"
++	"github.com/jkind73/cassini/uiface"
+
+--- Every other usage: blanket find-replace `coreif.` -> `uiface.`
+throughout the rest of the file (49 occurrences, confirmed by
+grep -c "coreif\." adapter.go against the real project file). The
+uiface package (see uiface/uiface.go) was built as a field-for-field
+mechanical port of coreif's shapes specifically so this rename is a
+pure text substitution -- SystemInfo, Emulator, Factory, DiscReader,
+DiscInfo, Button, CoreOption*, BIOSOption, BIOSVariant, MetadataVariant
+all keep identical field names and semantics. No logic changes
+anywhere in this file are needed beyond this substitution plus
+sections 1-4 below (the Region field, cart forwarding, and
+SetROMCartridge forwarding, which are genuinely new capability, not
+part of the rename itself).
+
+After this section plus 1-4, remove the eblitui dependency:
+
+    go get -u github.com/jkind73/cassini/...   # picks up the new local packages
+    go mod edit -droprequire github.com/user-none/eblitui
+    go mod tidy
+    go build ./...
+
+Patch for adapter.go
+====================
+
+This is not a full file — apply these two changes to your existing
+adapter.go. Rationale: DiscInfo already reads sector 0's IP System ID
+correctly; this only adds the one field (Compatible Area Symbols,
+IP.BIN offset $40 per your own ip_bin.md) that biosdb.SelectForRegion
+needs and that wasn't being parsed yet. Everything else in DiscInfo is
+untouched.
+
+--- 1. Add the offset constant, alongside the existing ones ---
+
+const (
+	ipHardwareID  = 0x00 // 16 bytes, "SEGA SEGASATURN "
+	ipProductNum  = 0x20 // 10 bytes, space padded
+	ipDeviceInfo  = 0x38 // 8 bytes, "CD-n/m"
++	ipAreaCode    = 0x40 // 10 bytes, "JTU " etc. — ip_bin.md: Compatible Area Symbols
+	ipGameTitle   = 0x60 // 112 bytes, space padded
+	ipGameTitleSz = 0x70
+)
+
+--- 2. Populate it in DiscInfo, and add parseAreaCode ---
+
+	info := uiface.DiscInfo{
+		ProductNumber: productNumber,
+		DiscNumber:    1,
+		DiscTotal:     1,
+	}
+
+	if len(user) >= ipDeviceInfo+8 {
+		if n, m, ok := parseDeviceInfo(string(user[ipDeviceInfo : ipDeviceInfo+8])); ok {
+			info.DiscNumber = n
+			info.DiscTotal = m
+		}
+	}
++	if len(user) >= ipAreaCode+10 {
++		info.Region = parseAreaCode(string(user[ipAreaCode : ipAreaCode+10]))
++	}
+	if len(user) >= ipGameTitle+ipGameTitleSz {
+		info.Title = strings.TrimSpace(string(user[ipGameTitle : ipGameTitle+ipGameTitleSz]))
+	}
+	return info, true
+}
+
++// parseAreaCode parses the IP System ID's Compatible Area Symbols
++// field into the single best-match Region for BIOS auto-assignment.
++// ip_bin.md: "J=Japan, T=Asia NTSC, U=North America, E=Europe PAL",
++// space padded, multiple symbols possible (e.g. "JTU " for a
++// tri-region disc). Preference order below matches which BIOS region
++// a disc most needs to boot correctly when it declares more than
++// one: a disc listing J needs a Japan-region BIOS's security check
++// to pass, ahead of also being playable on overseas hardware.
++func parseAreaCode(field string) uiface.Region {
++	s := strings.TrimSpace(field)
++	switch {
++	case strings.Contains(s, "J"):
++		return uiface.RegionJapan
++	case strings.Contains(s, "U"):
++		return uiface.RegionUSA
++	case strings.Contains(s, "E"):
++		return uiface.RegionEurope
++	case strings.Contains(s, "T"):
++		return uiface.RegionAsiaNTSC
++	default:
++		return uiface.RegionUnknown
++	}
++}
+
+--- 3. Update the coreif.DiscInfo{...} constructions above to uiface.DiscInfo, per item 10's rename (only if you've already applied item 3's uiface migration — if not yet, keep coreif.DiscInfo here for now and defer this patch's application until item 10; the Region field addition itself is independent of the coreif->uiface rename and can also be applied directly to coreif.DiscInfo today, whichever you land first) ---
+
+--- 4. Forward SetROMCartridge through the emulator wrapper, alongside
+the existing SetBIOS forwarding (same one-line style) ---
+
+func (e *emulator) SetBIOS(key string, data []byte) error {
+	return e.emu.SetBIOS(key, data)
+}
+
++func (e *emulator) SetROMCartridge(data []byte) {
++	e.emu.SetROMCartridge(data)
++}
+
+--- 5. Forward the new accessory methods through the emulator wrapper,
+same one-line-per-method style as SetBIOS/SetROMCartridge ---
+
++func (e *emulator) SetMouseMode(port int, enabled bool) { e.emu.SetMouseMode(port, enabled) }
++func (e *emulator) SetMouseData(port int, left, middle, right, start bool, dx, dy int32) {
++	e.emu.SetMouseData(port, left, middle, right, start, dx, dy)
++}
++func (e *emulator) SetAnalogPadMode(port int, enabled bool) { e.emu.SetAnalogPadMode(port, enabled) }
++func (e *emulator) SetAnalogPadData(port int, buttons uint16, ax, ay, ar, al uint8) {
++	e.emu.SetAnalogPadData(port, buttons, ax, ay, ar, al)
++}
++func (e *emulator) SetMissionStickData(port int, buttons uint16, ax, ay, az uint8) {
++	e.emu.SetMissionStickData(port, buttons, ax, ay, az)
++}
++func (e *emulator) SetRacingMode(port int, enabled bool) { e.emu.SetRacingMode(port, enabled) }
++func (e *emulator) SetRacingData(port int, buttons uint16, ax uint8) {
++	e.emu.SetRacingData(port, buttons, ax)
++}
++func (e *emulator) SetMDPadMode(port int, enabled, sixButton bool) {
++	e.emu.SetMDPadMode(port, enabled, sixButton)
++}
++func (e *emulator) SetMDPadData(port int, right, left, down, up, start, a, c, b, mode, x, y, z bool) {
++	e.emu.SetMDPadData(port, right, left, down, up, start, a, c, b, mode, x, y, z)
++}
++func (e *emulator) SetKeyboardMode(port int, enabled bool) { e.emu.SetKeyboardMode(port, enabled) }
++func (e *emulator) PushKeyboardEvent(port int, scancode uint8, released bool) {
++	e.emu.PushKeyboardEvent(port, scancode, released)
++}

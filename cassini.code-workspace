@@ -2,7 +2,15 @@
 	"folders": [
 		{
 			"path": "."
+		},
+		{
+			"path": "c:\\Users\\jkind"
 		}
 	],
-	"settings": {}
+	"settings": {},
+	"extensions": {
+		"recommendations": [
+			"ajalr.pdf-xtract"
+		]
+	}
 }

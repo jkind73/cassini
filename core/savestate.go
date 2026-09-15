@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/klauspost/compress/s2"
+	"github.com/jkind73/cassini/core/m68k"
 	"github.com/jkind73/cassini/core/sh2"
-	m68k "github.com/user-none/go-chip-m68k"
+	"github.com/klauspost/compress/s2"
 )
 
 // Save state container. Two-level tagged, length-prefixed, all values

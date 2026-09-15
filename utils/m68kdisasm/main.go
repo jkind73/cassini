@@ -17,7 +17,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/user-none/go-chip-m68k"
+	"github.com/jkind73/cassini/core/m68k"
 )
 
 func parseHexAddr(s string) (uint32, error) {

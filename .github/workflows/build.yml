@@ -106,14 +106,14 @@ jobs:
         run: |
           make windows VERSION="$VERSION"
           cd build
-          powershell -Command "Compress-Archive -Path erings.exe -DestinationPath erings-$VERSION-windows-$WIN_ARCH.zip -Force"
+          powershell -Command "Compress-Archive -Path cassini.exe -DestinationPath erings-$VERSION-windows-$WIN_ARCH.zip -Force"
 
       - name: Build (macOS app bundle)
         if: runner.os == 'macOS'
         run: |
           make macos VERSION="$VERSION"
           cd build
-          zip -r "erings-$VERSION-macos.zip" erings.app
+          zip -r "erings-$VERSION-macos.zip" cassini.app
 
       - name: Upload artifact (Linux)
         if: runner.os == 'Linux'
@@ -127,14 +127,14 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: erings-${{ env.VERSION }}-windows-${{ env.WIN_ARCH }}
-          path: build/erings.exe
+          path: build/cassini.exe
 
       - name: Upload artifact (macOS)
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v7
         with:
           name: erings-${{ env.VERSION }}-macos
-          path: build/erings.app
+          path: build/cassini.app
 
       - name: Attach binaries to release
         if: startsWith(github.ref, 'refs/tags/')

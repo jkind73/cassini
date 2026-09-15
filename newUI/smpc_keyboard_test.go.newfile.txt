@@ -1,0 +1,79 @@
+package core
+
+import "testing"
+
+func TestKeyboardPacket_PadEmulation(t *testing.T) {
+	kb := NewSaturnKeyboard(LayoutWestern)
+	kb.PushKeyEvent(CodeRight, false) // press Right
+	kb.PushKeyEvent(CodeZ, false)     // press Z (A TRG)
+	pkt := kb.PollFrame() // pops CodeRight event
+	// b0: Right,Left,Down,Up,Start,ATRG,CTRG,BTRG active-low.
+	// After PushKeyEvent, live level state already reflects both
+	// presses even though only one event has been popped from the FIFO.
+	if pkt[0]&0x80 != 0 {
+		t.Errorf("Right bit should be 0 (pressed), got b0=%08b", pkt[0])
+	}
+	if pkt[0]&0x04 != 0 {
+		t.Errorf("A TRG (Z key) bit should be 0 (pressed), got b0=%08b", pkt[0])
+	}
+	if pkt[0]&0x40 == 0 {
+		t.Errorf("Left bit should be 1 (released), got b0=%08b", pkt[0])
+	}
+}
+
+func TestKeyboardPacket_MakeBreak(t *testing.T) {
+	kb := NewSaturnKeyboard(LayoutWestern)
+	kb.PushKeyEvent(CodeF1, false) // Make
+	pkt := kb.PollFrame()
+	if pkt[2]&0x08 == 0 {
+		t.Errorf("Make bit (bit3) should be set, got b2=%08b", pkt[2])
+	}
+	if pkt[2]&0x01 != 0 {
+		t.Errorf("Break bit (bit0) should be clear on a Make event, got b2=%08b", pkt[2])
+	}
+	if pkt[3] != CodeF1 {
+		t.Errorf("4th data should be scancode 0x%02X, got 0x%02X", CodeF1, pkt[3])
+	}
+
+	kb2 := NewSaturnKeyboard(LayoutWestern)
+	kb2.PushKeyEvent(CodeF1, true) // Break
+	pkt2 := kb2.PollFrame()
+	if pkt2[2]&0x01 == 0 {
+		t.Errorf("Break bit should be set on release, got b2=%08b", pkt2[2])
+	}
+	if pkt2[2]&0x08 != 0 {
+		t.Errorf("Make bit should be clear on release, got b2=%08b", pkt2[2])
+	}
+}
+
+func TestKeyboardPacket_Locks(t *testing.T) {
+	kb := NewSaturnKeyboard(LayoutWestern)
+	kb.PushKeyEvent(CodeCapsLock, false)
+	pkt := kb.PollFrame()
+	if pkt[2]&0x40 == 0 {
+		t.Errorf("CapsLock bit (bit6 of 3rd data) should be set, got b2=%08b", pkt[2])
+	}
+	// bits 1-2 always fixed at 1 per the table
+	if pkt[2]&0x06 != 0x06 {
+		t.Errorf("fixed bits 1-2 should be 1, got b2=%08b", pkt[2])
+	}
+}
+
+func TestKeyboardPacket_KBType(t *testing.T) {
+	kb := NewSaturnKeyboard(LayoutWestern)
+	pkt := kb.PollFrame()
+	if pkt[1]&0x07 != KBTypeSaturnKeyboard {
+		t.Errorf("KBTYPE bits should be %03b, got b1=%08b", KBTypeSaturnKeyboard, pkt[1])
+	}
+}
+
+func TestKeyboardReport_ID(t *testing.T) {
+	kb := NewSaturnKeyboard(LayoutWestern)
+	report := kb.GetSMPCReport()
+	if len(report) != 5 {
+		t.Fatalf("report should be 5 bytes, got %d", len(report))
+	}
+	if report[0] != 0x34 {
+		t.Errorf("Peripheral ID should be 0x34, got 0x%02X", report[0])
+	}
+}

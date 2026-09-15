@@ -7,7 +7,7 @@ import (
 	"math"
 	"sync/atomic"
 
-	m68k "github.com/user-none/go-chip-m68k"
+	"github.com/jkind73/cassini/core/m68k"
 )
 
 const (

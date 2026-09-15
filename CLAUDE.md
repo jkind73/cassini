@@ -9,12 +9,6 @@ use python for filtering log entries and searching instead of compound bash
 commands. The pdf documentation files are considered authoritative.
 
 
-# Clean room
-
-This is intended to be a clean room implementation and should be based on documentation
-and our own tracing of data. We should not to look at other emulators code and copy what
-they do. Again, we're striving for a clean room coded emulator.
-
 
 # go
 

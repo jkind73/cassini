@@ -1,0 +1,198 @@
+Patch for bus.go
+=================
+
+Two independent additions, both additive -- neither changes existing
+4MB-RAM-cart or no-cart behavior at all.
+
+Provenance:
+  - ramCartID1MB = 0x5A: SegaXtreme community reverse-engineering
+    thread citing Charles MacDonald's Saturn hardware docs and
+    yabause's own source (cross-checked against this codebase's
+    existing ramCartID4MB = 0x5C, which the same source independently
+    confirms).
+  - ROM cart addressing (0x02000000-0x021FFFFF, no hardware ID byte,
+    detection is via the game reading its own data directly): supplied
+    directly by the project owner, cross-checked for internal
+    consistency against everything above (the window sits below
+    extRAMBase=0x02400000, non-overlapping with the RAM cart's range,
+    consistent with these being mutually-exclusive physical devices in
+    the same slot).
+  - Product numbers / cart-requirement list: Ymir project issue #98
+    (github.com/StrikerX3/Ymir/issues/98), itself citing Mednafen's
+    cart database; KOF96's specifically cross-checked against
+    satakore.com's independent game database.
+  - ROM cart file identity (KOF95/Ultraman): Mednafen/Beetle Saturn's
+    own filenames and MD5 hashes, quoted in Ymir issue #71
+    (github.com/StrikerX3/Ymir/issues/71). MD5, not the CRC32+SHA1
+    MAME convention the rest of cassini's hash identification follows
+    (biosdb, hashid) -- this is a narrower, separate database (see the
+    new romcartdb package) and I don't have CRC32/SHA1 for these two
+    specific dumps verified from any source, so it stores what's
+    actually confirmed rather than computing/guessing the others.
+
+--- 1. New constants, alongside the existing cart ones ---
+
+const (
+	ramCartIDNone = 0xFF
+	ramCartID4MB  = 0x5C
++	ramCartID1MB  = 0x5A
+	...
+	extRAMBase = 0x02400000
+	extRAMTop  = 0x027FFFFF
+	extRAMSize = 4 * 1024 * 1024
+	extRAMMask = extRAMSize - 1
++	ram1MBSize = 1 * 1024 * 1024
++	ram1MBMask = ram1MBSize - 1
++
++	// ROM cartridge window (KOF '95 / Ultraman: Hikari no Kyojin
++	// Densetsu). Distinct address range from the DRAM cart above and
++	// mutually exclusive with it. No hardware ID byte is involved;
++	// the game detects the cart by reading its data directly and
++	// validating headers/tables it expects to find there.
++	romCartBase = 0x02000000
++	romCartTop  = 0x021FFFFF
+)
+
+--- 2. New Bus field and setter, alongside the existing extRAM field ---
+
+type Bus struct {
+	...
+	extRAM    []byte // 4 MB Extended RAM Cartridge (A-Bus CS0)
+	ramCartID uint8
++	romCart   *ROMCartridge // non-nil when a ROM cartridge (not a DRAM
++	                        // cart) is inserted; mutually exclusive
++	                        // with ramCartID being anything other than
++	                        // ramCartIDNone -- SetROMCartridge and the
++	                        // existing RAM-cart setup are expected to
++	                        // be used exclusively of each other by
++	                        // whatever loads a disc's cart requirement
++	                        // (see romcartdb wiring).
+	...
+}
+
++// SetROMCartridge installs a ROM cartridge (KOF95/Ultraman). Pass nil
++// to remove it. Setting a ROM cartridge does NOT automatically clear
++// ramCartID -- the caller (emulator.go's disc-load path) is
++// responsible for setting ramCartID to ramCartIDNone at the same
++// time, since these two cart types are mutually exclusive on real
++// hardware and cassini has no way to enforce that invariant from
++// inside Bus alone without knowing which one the caller intends.
++func (b *Bus) SetROMCartridge(cart *ROMCartridge) {
++	b.romCart = cart
++}
+
+--- 3. ramCartAddrMask helper, used by all 6 read/write handlers below ---
+
++// ramCartAddrMask returns the address mask for the currently-inserted
++// DRAM cart, so a 1MB cart correctly mirrors every 1MB across the
++// (always 4MB-sized) address window rather than being read with a
++// fixed 4MB mask that would index past a would-be 1MB backing store
++// -- matching real hardware, where a smaller cart's unconnected upper
++// address lines cause this exact aliasing.
++func (b *Bus) ramCartAddrMask() uint32 {
++	if b.ramCartID == ramCartID1MB {
++		return ram1MBMask
++	}
++	return extRAMMask
++}
+
+--- 4. Read8 (around line 351) ---
+
+	case addr >= cs0Base && addr <= cs0Top:
+-		// A-Bus CS0: Extended RAM Cartridge
++		// A-Bus CS0: ROM Cartridge or Extended RAM Cartridge
++		if b.romCart != nil && addr >= romCartBase && addr <= romCartTop {
++			return b.romCart.Read8(addr - romCartBase)
++		}
+		if b.ramCartID != ramCartIDNone && addr >= extRAMBase && addr <= extRAMTop {
+-			return b.extRAM[addr&extRAMMask]
++			return b.extRAM[addr&b.ramCartAddrMask()]
+		}
+		return 0xFF
+
+--- 5. Write8 (around line 497) ---
+
+	case addr >= cs0Base && addr <= cs0Top:
+-		// A-Bus CS0: Extended RAM Cartridge
++		// A-Bus CS0: ROM Cartridge (read-only -- writes ignored, same
++		// as a real mask ROM) or Extended RAM Cartridge
++		if b.romCart != nil && addr >= romCartBase && addr <= romCartTop {
++			return
++		}
+		if addr >= extRAMBase && addr <= extRAMTop {
+-			b.extRAM[addr&extRAMMask] = val
++			b.extRAM[addr&b.ramCartAddrMask()] = val
+		}
+
+--- 6. Read16 (around line 701-707) ---
+
+	case masked >= extRAMBase && masked <= extRAMTop:
+		if b.ramCartID == ramCartIDNone {
+			return 0xFFFF
+		}
+-		off := masked & extRAMMask
++		off := masked & b.ramCartAddrMask()
+		return uint16(b.extRAM[off])<<8 | uint16(b.extRAM[off+1])
++	case masked >= romCartBase && masked <= romCartTop:
++		if b.romCart == nil {
++			return 0xFFFF
++		}
++		return b.romCart.Read16(masked - romCartBase)
+	case masked >= cs0Base && masked <= cs0Top:
+		// A-Bus CS0: non-extRAM area (open bus)
+		return 0xFFFF
+
+(Note: the new romCart case must appear before the generic
+cs0Base/cs0Top fallback case -- Go evaluates switch cases in source
+order for this expression-switch form, so placement matters.)
+
+--- 7. Write16 (around line 924-929) ---
+
+	case masked >= extRAMBase && masked <= extRAMTop:
+-		off := masked & extRAMMask
++		off := masked & b.ramCartAddrMask()
+		b.extRAM[off] = uint8(val >> 8)
+		b.extRAM[off+1] = uint8(val)
+		return
++	case masked >= romCartBase && masked <= romCartTop:
++		return // read-only, same as a real mask ROM
+	case masked >= cs0Base && masked <= cs0Top:
+		// A-Bus CS0: non-extRAM area (no device, ignored)
+		return
+
+--- 8. Read32 (around line 807-810) ---
+
+	case masked >= extRAMBase && masked <= extRAMTop:
+-		off := masked & extRAMMask
++		off := masked & b.ramCartAddrMask()
+		return uint32(b.extRAM[off])<<24 | uint32(b.extRAM[off+1])<<16 |
+			uint32(b.extRAM[off+2])<<8 | uint32(b.extRAM[off+3])
++	case masked >= romCartBase && masked <= romCartTop:
++		if b.romCart == nil {
++			return 0xFFFFFFFF
++		}
++		return b.romCart.Read32(masked - romCartBase)
+	case masked >= cs0Base && masked <= cs0Top:
+		...
+
+--- 9. Write32 (around line 1067-1073) ---
+
+	case masked >= extRAMBase && masked <= extRAMTop:
+-		off := masked & extRAMMask
++		off := masked & b.ramCartAddrMask()
+		b.extRAM[off] = uint8(val >> 24)
+		b.extRAM[off+1] = uint8(val >> 16)
+		b.extRAM[off+2] = uint8(val >> 8)
+		b.extRAM[off+3] = uint8(val)
+		return
++	case masked >= romCartBase && masked <= romCartTop:
++		return // read-only
+	case masked >= cs0Base && masked <= cs0Top:
+		...
+
+--- 10. Cartridge ID reporting (Read8 case, around line 360, and the
+16-bit equivalent) is UNCHANGED -- it already returns b.ramCartID
+verbatim, which naturally reports ramCartIDNone (0xFF) whenever a ROM
+cartridge is inserted instead of a DRAM cart, exactly matching "None
+(Open bus / 0xFF)" in the confirmed behavior table, with zero
+additional code needed there. ---

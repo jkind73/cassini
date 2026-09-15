@@ -1,0 +1,428 @@
+Patch for smpc.go
+=================
+
+Adds two new peripheral types cassini's SMPC can report, using the
+exact byte formats from Sega's own SMPC User's Manual (Chapter 3,
+"3.3 Support Peripheral Data Format" -- www.infochunk.com/saturn/
+segahtml_en/hard/smpc/hon/p03_30.htm, a translated scan of the
+official 1997 Sega Enterprises document). Both stay within the
+existing single-peripheral-per-port framing (no multitap), so nothing
+about collectPeripheralData's overall structure or the
+continue/break/timing machinery changes -- only which peripheral ID
+and how many data bytes get written for a given port.
+
+Peripheral ID byte structure, confirmed by the manual's "Peripheral
+data structure" page (p03_15.htm): bits 7-4 = Sega Saturn Peripheral
+Type, bits 3-0 = data byte count. Self-consistent with every existing
+value in cassini's code (0x02 standard pad = type 0, size 2; 0x0D
+lightgun already follows the same shape).
+
+Verified IDs from the manual's tables:
+  Shuttle Mouse:              0xE3 (type E, size 3) -- buttons+flags,
+                               X delta, Y delta
+  Mission Stick:               0x15 (type 1, size 5) -- digital buttons
+                               x2 + 3 analog axes (X, Y, throttle/Z)
+  Multi Controller (analog):   0x16 (type 1, size 6) -- digital buttons
+                               x2 + 4 analog axes (X, Y, R-trigger,
+                               L-trigger) -- this is the ID matching
+                               Sega's official "3D Control Pad" (the
+                               NiGHTS-bundled analog pad): stick
+                               position on AX/AY, analog shoulder
+                               buttons on AR/AL.
+
+--- 1. New per-port state, alongside padState/gunEnabled ---
+
+	padState   [12]uint16 // Active-low button data per player (0xFFFF = all released)
+	gunEnabled [2]bool    // Virtua Gun / Sinden Lightgun mode per port
++	mouseEnabled  [2]bool // Shuttle Mouse mode per port
++	mouseData     [2]mouseState
++	analogEnabled [2]bool // 3D Control Pad (Multi Controller analog mode) per port
++	analogData    [2]analogPadState
++	racingEnabled [2]bool // Racing Controller per port
++	racingData    [2]racingState
++	mdPadEnabled  [2]bool // Mega Drive 3/6-button pad per port
++	mdPadData     [2]mdPadState
++	keyboardEnabled [2]bool
++	keyboard        [2]*SaturnKeyboard // lazily created, see Keyboard()
+
++// mouseState holds one port's pending Shuttle Mouse report, per the
++// manual's mouse table: Left/Middle/Right/Start buttons (active HIGH,
++// unlike the digital pad's active-low convention -- the manual states
++// "It becomes 1 when the button is pressed" for the mouse, vs
++// "It becomes 0..." for every digital pad table), plus signed X/Y
++// movement encoded as an 8-bit magnitude + sign + overflow flag per
++// axis rather than plain two's-complement.
++type mouseState struct {
++	left, middle, right, start bool
++	dx, dy                     int32 // signed; encoded to the flag+magnitude wire format in collectPeripheralData
++}
++
++// analogPadState holds one port's pending 3D Control Pad / Mission
++// Stick report. ax/ay/ar/al are unsigned 0-255 (manual: absolute A/D
++// converter output, no sign bit; 0x80 = center for ax/ay per the
++// Yabause SMPC page's NiGHTS analog description, 0x00 = released for
++// ar/al triggers).
++type analogPadState struct {
++	buttons     uint16 // same active-low digital layout as SetPadData's encoding
++	ax, ay      uint8
++	ar, al      uint8 // unused (left at 0) for Mission Stick -- see missionMode
++	missionMode bool  // true: encode as Mission Stick (0x15, 5 bytes, az not ar/al); false: Multi Controller analog / 3D Control Pad (0x16, 6 bytes, ar+al)
++	az          uint8 // Mission Stick's third axis (throttle), unused when missionMode is false
++}
+
++// racingState holds one port's pending Racing Controller report (ID
++// 0x13, verified from the manual's Table with Racing Controller data
++// format): same digital button layout as the standard pad's 2nd Data
++// byte (with Down/Up bits repurposed by the game as paddle-shifter
++// input per the manual -- "It will be 0 (ON) when the butterfly
++// shift is brought to the front", not cassini's concern to interpret),
++// plus a single analog axis (steering), 0-255, center=127.
++type racingState struct {
++	buttons uint16
++	ax      uint8
++}
++
++// mdPadState holds one port's pending Mega Drive pad report. Kept as
++// named booleans rather than reusing padState's bit-packed uint16 --
++// MD6's 2nd Data byte (MODE,XTRG,YTRG,ZTRG,1,1,1,1, Table 3.15) has a
++// different bit layout from the Saturn standard pad's 2nd byte
++// (RTRG,XTRG,YTRG,ZTRG,LTRG,1,1,1, Table 3.18) -- MODE replaces RTRG
++// at bit7 and there's no LTRG bit at all -- so bit-reuse would need
++// careful per-bit remapping for marginal benefit; explicit fields are
++// harder to get subtly wrong and easier to verify against the tables.
++type mdPadState struct {
++	right, left, down, up, start, a, c, b bool // Table 3.14/3.15, 1st Data (shared by 3- and 6-button)
++	sixButton                              bool // selects 0xE2 (6-button, Table 3.15) vs 0xE1 (3-button, Table 3.14)
++	mode, x, y, z                          bool // Table 3.15, 2nd Data -- only meaningful when sixButton
++}
++
+--- 2. New setter methods, alongside SetLightgunMode ---
+
+func (s *SMPC) SetLightgunMode(port int, enabled bool) {
+	if port >= 0 && port < 2 {
+		s.gunEnabled[port] = enabled
+	}
+}
+
++// SetMouseMode enables or disables Shuttle Mouse peripheral ID for
++// port 0 or 1. Mutually exclusive with SetLightgunMode/
++// SetAnalogPadMode for the same port in practice (only one physical
++// device occupies a port), but cassini does not enforce that itself
++// -- same non-enforcement as the existing gun/pad relationship.
++func (s *SMPC) SetMouseMode(port int, enabled bool) {
++	if port >= 0 && port < 2 {
++		s.mouseEnabled[port] = enabled
++	}
++}
++
++// SetMouseData sets port's pending mouse report. dx/dy are relative
++// motion since the last poll (matches the manual's delta-encoded
++// format -- NOT absolute position, unlike SetPointer's lightgun
++// coordinates).
++func (s *SMPC) SetMouseData(port int, left, middle, right, start bool, dx, dy int32) {
++	if port < 0 || port >= 2 {
++		return
++	}
++	s.mouseData[port] = mouseState{left: left, middle: middle, right: right, start: start, dx: dx, dy: dy}
++}
++
++// SetAnalogPadMode enables or disables 3D Control Pad (Multi
++// Controller analog mode, ID 0x16) for port 0 or 1.
++func (s *SMPC) SetAnalogPadMode(port int, enabled bool) {
++	if port >= 0 && port < 2 {
++		s.analogEnabled[port] = enabled
++	}
++}
++
++// SetAnalogPadData sets port's pending 3D Control Pad report. buttons
++// uses the same active-low encoding as SetPadData; ax/ay/ar/al are
++// 0-255 with 0x80 center for ax/ay.
++func (s *SMPC) SetAnalogPadData(port int, buttons uint16, ax, ay, ar, al uint8) {
++	if port < 0 || port >= 2 {
++		return
++	}
++	s.analogData[port] = analogPadState{buttons: buttons, ax: ax, ay: ay, ar: ar, al: al, missionMode: false}
++}
++
++// SetMissionStickData is the Mission Stick equivalent of
++// SetAnalogPadData (ID 0x15, 3 axes -- X, Y, throttle/Z -- rather
++// than 0x16's 4). Setting this also implicitly selects Mission Stick
++// framing over 3D Control Pad framing for the port the next time
++// collectPeripheralData runs, for as long as analogEnabled[port]
++// stays true; call SetAnalogPadData instead to switch back.
++func (s *SMPC) SetMissionStickData(port int, buttons uint16, ax, ay, az uint8) {
++	if port < 0 || port >= 2 {
++		return
++	}
++	s.analogData[port] = analogPadState{buttons: buttons, ax: ax, ay: ay, az: az, missionMode: true}
++}
++
++// SetRacingMode enables or disables Racing Controller for port 0 or 1.
++func (s *SMPC) SetRacingMode(port int, enabled bool) {
++	if port >= 0 && port < 2 {
++		s.racingEnabled[port] = enabled
++	}
++}
++
++// SetRacingData sets port's pending Racing Controller report.
++func (s *SMPC) SetRacingData(port int, buttons uint16, ax uint8) {
++	if port < 0 || port >= 2 {
++		return
++	}
++	s.racingData[port] = racingState{buttons: buttons, ax: ax}
++}
++
++// SetMDPadMode enables or disables Mega Drive pad emulation for port
++// 0 or 1. sixButton selects the 6-button (0xE2) vs 3-button (0xE1)
++// report format.
++func (s *SMPC) SetMDPadMode(port int, enabled, sixButton bool) {
++	if port < 0 || port >= 2 {
++		return
++	}
++	s.mdPadEnabled[port] = enabled
++	s.mdPadData[port].sixButton = sixButton
++}
++
++// SetMDPadData sets port's pending Mega Drive pad report.
++func (s *SMPC) SetMDPadData(port int, right, left, down, up, start, a, c, b, mode, x, y, z bool) {
++	if port < 0 || port >= 2 {
++		return
++	}
++	six := s.mdPadData[port].sixButton
++	s.mdPadData[port] = mdPadState{
++		right: right, left: left, down: down, up: up,
++		start: start, a: a, c: c, b: b,
++		sixButton: six, mode: mode, x: x, y: y, z: z,
++	}
++}
++
++// Keyboard returns port's SaturnKeyboard, creating it on first use.
++// Call SetKeyboardMode(port, true) to actually make it visible to the
++// game; the instance is created lazily either way so a host can push
++// key events before or after enabling.
++func (s *SMPC) Keyboard(port int) *SaturnKeyboard {
++	if port < 0 || port >= 2 {
++		return nil
++	}
++	if s.keyboard[port] == nil {
++		s.keyboard[port] = NewSaturnKeyboard(LayoutWestern)
++	}
++	return s.keyboard[port]
++}
++
++// SetKeyboardMode enables or disables Saturn Keyboard emulation for
++// port 0 or 1.
++func (s *SMPC) SetKeyboardMode(port int, enabled bool) {
++	if port < 0 || port >= 2 {
++		return
++	}
++	s.keyboardEnabled[port] = enabled
++	if enabled {
++		s.Keyboard(port) // ensure it exists
++	}
++}
+
+--- 3. collectPeripheralData: peripheral ID selection extended,
+priority order gun > mouse > analog pad > standard pad (arbitrary but
+deterministic -- a port should only ever have one of these enabled at
+once in practice) ---
+
+func (s *SMPC) collectPeripheralData() {
+	idx := 0
+
+	// Port 1 data (omitted if 0-byte mode)
+	if s.intbackP1MD != 3 {
+		s.oreg[idx] = 0xF1 // multitap=F, connectors=1
+-		if s.gunEnabled[0] {
+-			s.oreg[idx+1] = 0x0D // Virtua Gun / Lightgun ID
+-		} else {
+-			s.oreg[idx+1] = 0x02 // Standard Digital Pad ID
+-		}
+-		s.oreg[idx+2] = uint8(s.padState[0] >> 8)
+-		s.oreg[idx+3] = uint8(s.padState[0])
+-		idx += 4
++		idx += 1 + s.writePeripheralReport(idx+1, 0)
+	}
+
+	// Port 2 data (omitted if 0-byte mode)
+	if s.intbackP2MD != 3 {
+		s.oreg[idx] = 0xF1 // multitap=F, connectors=1
+-		if s.gunEnabled[1] {
+-			s.oreg[idx+1] = 0x0D // Virtua Gun / Lightgun ID
+-		} else {
+-			s.oreg[idx+1] = 0x02 // Standard Digital Pad ID
+-		}
+-		s.oreg[idx+2] = uint8(s.padState[1] >> 8)
+-		s.oreg[idx+3] = uint8(s.padState[1])
++		idx += 1 + s.writePeripheralReport(idx+1, 1)
+	}
+
+	...
+}
+
++// writePeripheralReport writes one port's peripheral ID byte plus its
++// data bytes starting at s.oreg[dstIdx], returning the total bytes
++// written (1 ID byte + N data bytes) so the caller can advance idx.
++// Priority when multiple *Enabled flags are set for the same port
++// (shouldn't happen in practice -- see the setters' doc comments):
++// gun, then mouse, then analog pad, then the always-available
++// standard digital pad fallback.
++func (s *SMPC) writePeripheralReport(dstIdx, port int) int {
++	switch {
++	case s.gunEnabled[port]:
++		s.oreg[dstIdx] = 0x0D // Virtua Gun / Lightgun ID
++		s.oreg[dstIdx+1] = uint8(s.padState[port] >> 8)
++		s.oreg[dstIdx+2] = uint8(s.padState[port])
++		return 3
++
++	case s.mouseEnabled[port]:
++		m := s.mouseData[port]
++		s.oreg[dstIdx] = 0xE3 // Shuttle Mouse ID (type E, size 3)
++		var b1 uint8
++		if m.left {
++			b1 |= 0x01
++		}
++		if m.right {
++			b1 |= 0x02
++		}
++		if m.middle {
++			b1 |= 0x04
++		}
++		if m.start {
++			b1 |= 0x08
++		}
++		xByte, xSign, xOver := encodeMouseAxis(m.dx)
++		yByte, ySign, yOver := encodeMouseAxis(m.dy)
++		if xSign {
++			b1 |= 0x10
++		}
++		if ySign {
++			b1 |= 0x20
++		}
++		if xOver {
++			b1 |= 0x40
++		}
++		if yOver {
++			b1 |= 0x80
++		}
++		s.oreg[dstIdx+1] = b1
++		s.oreg[dstIdx+2] = xByte
++		s.oreg[dstIdx+3] = yByte
++		return 4
++
++	case s.analogEnabled[port]:
++		a := s.analogData[port]
++		if a.missionMode {
++			s.oreg[dstIdx] = 0x15 // Mission Stick ID (type 1, size 5)
++			s.oreg[dstIdx+1] = uint8(a.buttons >> 8)
++			s.oreg[dstIdx+2] = uint8(a.buttons)
++			s.oreg[dstIdx+3] = a.ax
++			s.oreg[dstIdx+4] = a.ay
++			s.oreg[dstIdx+5] = a.az
++			return 6
++		}
++		s.oreg[dstIdx] = 0x16 // Multi Controller analog / 3D Control Pad ID (type 1, size 6)
++		s.oreg[dstIdx+1] = uint8(a.buttons >> 8)
++		s.oreg[dstIdx+2] = uint8(a.buttons)
++		s.oreg[dstIdx+3] = a.ax
++		s.oreg[dstIdx+4] = a.ay
++		s.oreg[dstIdx+5] = a.ar
++		s.oreg[dstIdx+6] = a.al
++		return 7
++
++	case s.racingEnabled[port]:
++		r := s.racingData[port]
++		s.oreg[dstIdx] = 0x13 // Racing Controller ID (type 1, size 3)
++		s.oreg[dstIdx+1] = uint8(r.buttons >> 8)
++		s.oreg[dstIdx+2] = uint8(r.buttons)
++		s.oreg[dstIdx+3] = r.ax
++		return 4
++
++	case s.keyboardEnabled[port] && s.keyboard[port] != nil:
++		report := s.keyboard[port].GetSMPCReport() // [ID, 4 data bytes]
++		copy(s.oreg[dstIdx:], report)
++		return len(report)
++
++	case s.mdPadEnabled[port]:
++		m := s.mdPadData[port]
++		var b0 byte = 0xFF // Right,Left,Down,Up,Start,ATRG,CTRG,BTRG -- active low, Table 3.14/3.15
++		if m.right {
++			b0 &^= 0x80
++		}
++		if m.left {
++			b0 &^= 0x40
++		}
++		if m.down {
++			b0 &^= 0x20
++		}
++		if m.up {
++			b0 &^= 0x10
++		}
++		if m.start {
++			b0 &^= 0x08
++		}
++		if m.a {
++			b0 &^= 0x04
++		}
++		if m.c {
++			b0 &^= 0x02
++		}
++		if m.b {
++			b0 &^= 0x01
++		}
++		if !m.sixButton {
++			s.oreg[dstIdx] = 0xE1 // MD 3-button ID (type E, size 1), Table 3.14
++			s.oreg[dstIdx+1] = b0
++			return 2
++		}
++		var b1 byte = 0x0F // MODE,XTRG,YTRG,ZTRG,1,1,1,1 -- Table 3.15
++		if m.mode {
++			b1 &^= 0x80
++		}
++		if m.x {
++			b1 &^= 0x40
++		}
++		if m.y {
++			b1 &^= 0x20
++		}
++		if m.z {
++			b1 &^= 0x10
++		}
++		s.oreg[dstIdx] = 0xE2 // MD 6-button ID (type E, size 2), Table 3.15
++		s.oreg[dstIdx+1] = b0
++		s.oreg[dstIdx+2] = b1
++		return 3
+
+	default:
++		s.oreg[dstIdx] = 0x02 // Standard Digital Pad ID
++		s.oreg[dstIdx+1] = uint8(s.padState[port] >> 8)
++		s.oreg[dstIdx+2] = uint8(s.padState[port])
++		return 3
++	}
++}
++
++// encodeMouseAxis converts a signed relative-motion delta into the
++// manual's flag+magnitude wire format: magnitude byte, sign flag
++// (1 = negative), overflow flag (1 = |delta| > 255, in which case the
++// magnitude byte is indefinite per the manual and left at 0 here).
++func encodeMouseAxis(d int32) (b uint8, sign, overflow bool) {
++	if d < 0 {
++		sign = true
++		d = -d
++	}
++	if d > 255 {
++		return 0, sign, true
++	}
++	return uint8(d), sign, false
++}
+
+NOTE ON BYTE-COUNT ARITHMETIC: idx accumulation above (1 status byte +
+writePeripheralReport's return value) must stay under len(s.oreg)
+(32). Worst case for a SINGLE port using the largest new peripheral
+(3D Control Pad, 7 bytes) is 1+7=8 bytes; both ports at worst case is
+16, well within 32 -- no overflow risk for non-multitap use of any of
+these new peripherals (Mouse, Mission Stick, 3D Control Pad, Racing
+Controller all included). This patch deliberately does NOT touch or
+need the OREG-overflow/continuation redesign that true multitap
+(Sega Tap / Multi Terminal 6) support requires -- see
+multitap-design.md for that, on hold per instruction.

@@ -1,0 +1,85 @@
+Patch for emulator.go
+=====================
+
+Mirrors the existing SetBIOS pattern exactly: cassini's core has no
+filesystem access of its own, so the host (adapter.go / the UI-side
+scanner+romcartdb) is responsible for locating and reading the correct
+cart image and supplying its raw bytes here. Core only needs to know
+WHICH products expect a ROM cart (the pure lookup table added in
+ramcart.go.patch.txt) so applyRAMCartOverride doesn't put a wrong DRAM
+cart ID in place for them.
+
+--- 1. applyRAMCartOverride gets one early-return branch ---
+
+func (e *Emulator) applyRAMCartOverride() {
+	if len(e.ipImage) < 0x2A {
+		return
+	}
+	product := strings.Trim(string(e.ipImage[0x20:0x2A]), " \x00")
++	if romCartRequired(product) {
++		// ROM-cart titles use ramCartIDNone (matches real hardware:
++		// the cartridge ID register isn't wired for these carts at
++		// all -- see bus.go.patch.txt's provenance notes) until/unless
++		// the host supplies the actual cart image via
++		// SetROMCartridge. If it never does, the game correctly sees
++		// "no cartridge" rather than a wrong DRAM cart ID that would
++		// never validate against what the game actually checks for
++		// anyway.
++		e.bus.ramCartID = ramCartIDNone
++		return
++	}
+	e.bus.ramCartID = ramCartIDForProduct(product)
+}
+
+--- 2. New method, alongside the existing SetBIOS ---
+
++// SetROMCartridge installs a ROM cartridge (KOF95/Ultraman), mirroring
++// SetBIOS's host-supplies-the-bytes pattern exactly. Call after
++// SetDisc (so applyRAMCartOverride has already run and set
++// ramCartIDNone for a ROM-cart title) and before Start. Calling this
++// for a disc that does NOT need a ROM cart is harmless but pointless
++// -- the cart occupies an address window (0x02000000-0x021FFFFF)
++// that title's own code will simply never read.
++func (e *Emulator) SetROMCartridge(data []byte) {
++	e.bus.SetROMCartridge(NewROMCartridge(data))
++	e.bus.ramCartID = ramCartIDNone
++}
+
+--- 3. New wrapper methods, alongside SetROMCartridge -- each a thin
+forward to the matching smpc.go.patch.txt method, mirroring how
+SetPointer already forwards to e.smpc.SetLightgunMode. Kept as
+individual explicit methods (not a single enum-based "SetAccessory"
+call) to match this codebase's existing preference for narrow, named
+methods over a generic dispatch API. ---
+
++func (e *Emulator) SetMouseMode(port int, enabled bool) { e.smpc.SetMouseMode(port, enabled) }
++func (e *Emulator) SetMouseData(port int, left, middle, right, start bool, dx, dy int32) {
++	e.smpc.SetMouseData(port, left, middle, right, start, dx, dy)
++}
++
++func (e *Emulator) SetAnalogPadMode(port int, enabled bool) { e.smpc.SetAnalogPadMode(port, enabled) }
++func (e *Emulator) SetAnalogPadData(port int, buttons uint16, ax, ay, ar, al uint8) {
++	e.smpc.SetAnalogPadData(port, buttons, ax, ay, ar, al)
++}
++func (e *Emulator) SetMissionStickData(port int, buttons uint16, ax, ay, az uint8) {
++	e.smpc.SetMissionStickData(port, buttons, ax, ay, az)
++}
++
++func (e *Emulator) SetRacingMode(port int, enabled bool) { e.smpc.SetRacingMode(port, enabled) }
++func (e *Emulator) SetRacingData(port int, buttons uint16, ax uint8) {
++	e.smpc.SetRacingData(port, buttons, ax)
++}
++
++func (e *Emulator) SetMDPadMode(port int, enabled, sixButton bool) {
++	e.smpc.SetMDPadMode(port, enabled, sixButton)
++}
++func (e *Emulator) SetMDPadData(port int, right, left, down, up, start, a, c, b, mode, x, y, z bool) {
++	e.smpc.SetMDPadData(port, right, left, down, up, start, a, c, b, mode, x, y, z)
++}
++
++func (e *Emulator) SetKeyboardMode(port int, enabled bool) { e.smpc.SetKeyboardMode(port, enabled) }
++func (e *Emulator) PushKeyboardEvent(port int, scancode uint8, released bool) {
++	if kb := e.smpc.Keyboard(port); kb != nil {
++		kb.PushKeyEvent(scancode, released)
++	}
++}
