@@ -77,7 +77,7 @@ jobs:
         run: |
           make appimage VERSION="$VERSION" APPIMAGE_ARCH="$APPIMAGE_ARCH"
           cd build
-          zip "erings-$VERSION-linux-$APPIMAGE_ARCH.zip" "erings-$VERSION-$APPIMAGE_ARCH.AppImage"
+          zip "cassini-$VERSION-linux-$APPIMAGE_ARCH.zip" "cassini-$VERSION-$APPIMAGE_ARCH.AppImage"
 
       - name: Install make (Windows)
         if: runner.os == 'Windows'
@@ -106,39 +106,39 @@ jobs:
         run: |
           make windows VERSION="$VERSION"
           cd build
-          powershell -Command "Compress-Archive -Path cassini.exe -DestinationPath erings-$VERSION-windows-$WIN_ARCH.zip -Force"
+          powershell -Command "Compress-Archive -Path cassini.exe -DestinationPath cassini-$VERSION-windows-$WIN_ARCH.zip -Force"
 
       - name: Build (macOS app bundle)
         if: runner.os == 'macOS'
         run: |
           make macos VERSION="$VERSION"
           cd build
-          zip -r "erings-$VERSION-macos.zip" cassini.app
+          zip -r "cassini-$VERSION-macos.zip" cassini.app
 
       - name: Upload artifact (Linux)
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v7
         with:
-          name: erings-${{ env.VERSION }}-linux-${{ env.APPIMAGE_ARCH }}
-          path: build/erings-${{ env.VERSION }}-${{ env.APPIMAGE_ARCH }}.AppImage
+          name: cassini-${{ env.VERSION }}-linux-${{ env.APPIMAGE_ARCH }}
+          path: build/cassini-${{ env.VERSION }}-${{ env.APPIMAGE_ARCH }}.AppImage
 
       - name: Upload artifact (Windows)
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v7
         with:
-          name: erings-${{ env.VERSION }}-windows-${{ env.WIN_ARCH }}
+          name: cassini-${{ env.VERSION }}-windows-${{ env.WIN_ARCH }}
           path: build/cassini.exe
 
       - name: Upload artifact (macOS)
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v7
         with:
-          name: erings-${{ env.VERSION }}-macos
+          name: cassini-${{ env.VERSION }}-macos
           path: build/cassini.app
 
       - name: Attach binaries to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: build/erings-*.zip
+          files: build/cassini-*.zip
           fail_on_unmatched_files: false

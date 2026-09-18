@@ -1,4 +1,4 @@
-// Copyright 2026 The erings Authors
+// Copyright 2026 The cassini Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 package sh2
@@ -577,11 +577,11 @@ func TestBCR1Read16AtSpecOffset(t *testing.T) {
 // address error. When a JMP targets an odd address, the delay slot
 // runs first, the branch completes, and the next instruction fetch
 // at the odd target traps to vector 9. README "Address error during
-// instruction execution (not modeled correctly)" notes erings
+// instruction execution (not modeled correctly)" notes cassini
 // services the trap synchronously from fetchPC, so stacked PC is
 // the odd fetch address rather than HM Sec 4.7 Table 4.11's
 // "address of instruction after executed instruction." This test
-// pins the erings-observed stacked PC.
+// pins the cassini-observed stacked PC.
 func TestJMPToOddAddressAddressErrors(t *testing.T) {
 	handler := uint32(0x100)
 	cpu, bus := setupAddrErrorTest(handler)
@@ -610,7 +610,7 @@ func TestJMPToOddAddressAddressErrors(t *testing.T) {
 	}
 	stackedPC := bus.Read32(cpu.reg.R[15])
 	if stackedPC != 0x301 {
-		t.Errorf("stacked PC = 0x%08X, want 0x301 (erings observed behavior; "+
+		t.Errorf("stacked PC = 0x%08X, want 0x301 (cassini observed behavior; "+
 			"HM Sec 4.7 Table 4.11 specifies a different value - README documents divergence)",
 			stackedPC)
 	}
@@ -721,7 +721,7 @@ func (s *sparseBus) Read8(addr uint32) uint8 {
 // Simplification lock. HM Sec 4.3.1 Table 4.6 row "Instruction
 // fetched from on-chip peripheral module space" requires an address
 // error (vector 9). README D9 documents this row as unmodeled:
-// erings's fetchPC (cpu.go:546) only checks odd-PC, not on-chip
+// cassini's fetchPC (cpu.go:546) only checks odd-PC, not on-chip
 // space. The bus.Read16 is issued directly. This test pins the
 // simplified behavior - a future change that adds the trap has to
 // revisit this case explicitly.
@@ -738,7 +738,7 @@ func TestFetchFromOnChipSpaceNoAddressErrorDivergence(t *testing.T) {
 	cpu.fetchPC()
 
 	if cpu.addrError {
-		t.Error("addrError raised on fetch from on-chip space; erings simplification expects no trap")
+		t.Error("addrError raised on fetch from on-chip space; cassini simplification expects no trap")
 	}
 	if cpu.reg.PC != 0xFFFFFE12 {
 		t.Errorf("PC after on-chip fetch = 0x%08X, want 0xFFFFFE12 (advance by 2)",

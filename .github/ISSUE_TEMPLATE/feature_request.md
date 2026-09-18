@@ -1,6 +1,6 @@
 ---
 name: Feature Request
-about: Suggest a feature or improvement for erings
+about: Suggest a feature or improvement for cassini
 title: "[Feature] "
 labels: enhancement
 assignees: ''

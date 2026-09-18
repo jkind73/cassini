@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a problem with erings
+about: Report a problem with cassini
 title: "[Bug] "
 labels: bug
 assignees: ''

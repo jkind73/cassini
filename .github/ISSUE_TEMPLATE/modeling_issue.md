@@ -17,7 +17,7 @@ What is missing or incorrectly modeled? (e.g. "SH-2 cache is not implemented",
 
 ## Current Behavior
 
-How does erings currently behave (or what does it omit)?
+How does cassini currently behave (or what does it omit)?
 
 ## Correct Behavior
 
