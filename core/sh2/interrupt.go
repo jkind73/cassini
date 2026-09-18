@@ -196,5 +196,6 @@ func (c *CPU) serviceException(vec uint16) {
 	c.pendingVal = c.reg.SR
 	c.pendingVal2 = returnPC
 	c.pendingAddr = uint32(vec)
+	c.cycles++
 	c.setPending(popException, 4)
 }

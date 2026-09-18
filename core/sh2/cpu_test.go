@@ -155,10 +155,14 @@ func TestFetchPCOddAddress(t *testing.T) {
 	cpu.reg.SR = 0
 
 	got := cpu.fetchPC()
+	addrErr := cpu.addrError
+	for cpu.pendingOp != popNone {
+		cpu.Clock()
+	}
 	if got != 0 {
 		t.Errorf("fetchPC() with odd PC returned 0x%04X, want 0", got)
 	}
-	if !cpu.addrError {
+	if !addrErr {
 		t.Error("addrError not set after odd PC fetch")
 	}
 	if cpu.reg.PC != handlerAddr {
@@ -219,6 +223,9 @@ func TestAddressErrorWordRead(t *testing.T) {
 	cpu.reg.R[1] = 0x301 // odd -> address error
 
 	cpu.Clock()
+	for cpu.pendingOp != popNone {
+		cpu.Clock()
+	}
 
 	if cpu.reg.PC != handler {
 		t.Errorf("PC = 0x%08X, want 0x%08X", cpu.reg.PC, handler)
@@ -241,6 +248,9 @@ func TestAddressErrorWordWrite(t *testing.T) {
 	cpu.reg.R[1] = 0xBEEF
 
 	cpu.Clock()
+	for cpu.pendingOp != popNone {
+		cpu.Clock()
+	}
 
 	if cpu.reg.PC != handler {
 		t.Errorf("PC = 0x%08X, want 0x%08X", cpu.reg.PC, handler)
@@ -257,6 +267,9 @@ func TestAddressErrorLongRead(t *testing.T) {
 	cpu.reg.R[1] = 0x302 // aligned to 2 but not 4 -> address error
 
 	cpu.Clock()
+	for cpu.pendingOp != popNone {
+		cpu.Clock()
+	}
 
 	if cpu.reg.PC != handler {
 		t.Errorf("PC = 0x%08X, want 0x%08X", cpu.reg.PC, handler)
@@ -274,6 +287,9 @@ func TestAddressErrorLongWrite(t *testing.T) {
 	cpu.reg.R[1] = 0xDEADBEEF
 
 	cpu.Clock()
+	for cpu.pendingOp != popNone {
+		cpu.Clock()
+	}
 
 	if cpu.reg.PC != handler {
 		t.Errorf("PC = 0x%08X, want 0x%08X", cpu.reg.PC, handler)
@@ -293,6 +309,9 @@ func TestAddressErrorStacking(t *testing.T) {
 	cpu.reg.R[15] = sp
 
 	cpu.Clock()
+	for cpu.pendingOp != popNone {
+		cpu.Clock()
+	}
 
 	// SR and PC should be stacked
 	stackedPC := bus.Read32(cpu.reg.R[15])
@@ -335,6 +354,9 @@ func TestAddressErrorHandlerFetchFromVBR(t *testing.T) {
 	bus.Write16(0x300, 0x6011) // MOV.W @R1,R0
 
 	cpu.Clock()
+	for cpu.pendingOp != popNone {
+		cpu.Clock()
+	}
 
 	if cpu.reg.PC != handler {
 		t.Errorf("PC = 0x%08X, want 0x%08X (handler from VBR + 9*4 = 0x%08X)",
@@ -580,6 +602,9 @@ func TestJMPToOddAddressAddressErrors(t *testing.T) {
 	}
 	// Next Clock fetches at the odd PC and traps.
 	cpu.Clock()
+	for cpu.pendingOp != popNone {
+		cpu.Clock()
+	}
 	if cpu.reg.PC != handler {
 		t.Errorf("address-error handler not taken: PC = 0x%08X, want 0x%X", cpu.reg.PC, handler)
 	}
@@ -625,6 +650,9 @@ func TestBSRToOddAddressAddressErrors(t *testing.T) {
 		t.Fatalf("after delay slot: PC = 0x%08X, want 0x301", cpu.reg.PC)
 	}
 	cpu.Clock()
+	for cpu.pendingOp != popNone {
+		cpu.Clock()
+	}
 	if cpu.reg.PC != handler {
 		t.Errorf("handler not entered: PC = 0x%08X", cpu.reg.PC)
 	}
@@ -653,6 +681,9 @@ func TestRTSToOddPRAddressErrors(t *testing.T) {
 		t.Fatalf("after delay slot: PC = 0x%08X, want 0x301", cpu.reg.PC)
 	}
 	cpu.Clock()
+	for cpu.pendingOp != popNone {
+		cpu.Clock()
+	}
 	if cpu.reg.PC != handler {
 		t.Errorf("handler not entered: PC = 0x%08X", cpu.reg.PC)
 	}

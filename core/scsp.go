@@ -629,7 +629,7 @@ func (s *SCSP) Write(offset uint32, val uint16) {
 	case scspRegSCIPD:
 		// SH-2 sets CPU doorbell (bit 5) / SCIPD bits to signal the 68K.
 		s.lockIntr()
-		s.regs[offset/2] |= val & 0x07FF
+		s.regs[offset/2] |= val & scspIntCPU
 		s.checkSoundInterrupt()
 		s.unlockIntr()
 		return
