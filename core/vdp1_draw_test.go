@@ -3163,13 +3163,13 @@ func TestDrawScaledSpriteHSSReduceIgnoresEndCode(t *testing.T) {
 	v.VBlankIn()
 	drainDrawing(v)
 
-	// HSS=1 + reduction (destW=4 < charW=8): end codes disabled.
-	// EOS=0 forces even coords. dx=2 -> srcX=2*8/4=4 -> forced even=4 -> dot=0xFF
-	// End code treated as normal pixel: (0x0100 & 0xFF00) | (0xFF & 0xFF) = 0x01FF
-	if got := readFBPixel(v, 2, 0); got != 0x01FF {
-		t.Errorf("px(2,0) = 0x%04X, want 0x01FF (end code treated as pixel)", got)
+	// HSS=1 + reduction (destW=4 < charW=8): end codes do not terminate row early,
+	// but remain transparent (not drawn as opaque pixels).
+	// EOS=0 forces even coords. dx=2 -> srcX=4 -> dot=0xFF (end code, transparent)
+	if got := readFBPixel(v, 2, 0); got != 0x0000 {
+		t.Errorf("px(2,0) = 0x%04X, want 0x0000 (end code remains transparent)", got)
 	}
-	// dx=3 -> srcX=3*8/4=6 -> forced even=6 -> dot=0x16
+	// dx=3 -> srcX=6 -> dot=0x16 (drawn past end code)
 	if got := readFBPixel(v, 3, 0); got != 0x0116 {
 		t.Errorf("px(3,0) = 0x%04X, want 0x0116 (drawn past end code)", got)
 	}
